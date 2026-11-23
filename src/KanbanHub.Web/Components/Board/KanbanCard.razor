@@ -1,0 +1,120 @@
+@*
+    A card on the board. The mouse drags it; the keyboard carries it (Space, arrows, Space or Escape).
+    Status is never color alone: the border color comes with a text label (specification section 6).
+*@
+@inject BoardMoves Moves
+@inject DragState Drag
+@inject KeyboardMove Keyboard
+
+<div id="card-@Card.Id" class="kh-card @Classes" style="--kh-card-color: var(--kh-@StatusVariable)"
+     role="button" tabindex="0" draggable="@(CanMove ? "true" : "false")"
+     aria-label="@AccessibleName" aria-grabbed="@(IsCarried ? "true" : "false")"
+     @onclick="() => OnOpen.InvokeAsync(Card)" @onkeydown="OnKeyAsync"
+     @ondragstart="() => Drag.Begin(Card)" @ondragend="Drag.End">
+    <span class="kh-card__title">#@Card.Number @Card.Title</span>
+    <span class="kh-card__meta">
+        <span class="kh-tag" style="--kh-tag-color: var(--kh-@TypeVariable); --kh-tag-ink: @TypeInk">@TypeLabel</span>
+        @foreach (CardStatus status in Statuses)
+        {
+            <span class="kh-badge" style="--kh-badge-color: var(--kh-@Variable(status.TokenKey()))">@Label(status)</span>
+        }
+        @if (Card.PriorityBucket is { } bucket)
+        {
+            <span>P@(bucket)</span>
+        }
+        @if (Card.Issue is { } issue)
+        {
+            <span title="@issue.Repository">GitHub #@issue.Number</span>
+            @if (issue.SyncProblem is not null)
+            {
+                <span class="kh-badge kh-badge--sync" title="@issue.SyncProblem">Sync issue</span>
+            }
+            @if (issue.ClosedInGitHub)
+            {
+                <span class="kh-badge">Closed in GitHub</span>
+            }
+        }
+        @if (Card.Agent is { } agent)
+        {
+            <span class="kh-badge kh-badge--agent" title="@AgentLabels.NameOf(agent.Agent)">
+                @if (agent.State is DispatchState.Working)
+                {
+                    <span class="kh-spinner" aria-hidden="true"></span>
+                }
+                @AgentLabels.BadgeOf(agent)
+            </span>
+        }
+        @if (Card.Location.IsInsideStep())
+        {
+            <span title="Days in this column">@DaysHere d</span>
+        }
+    </span>
+</div>
+
+@code {
+    /// <summary>Cascaded by the board page, so this component re-renders whenever the board changes.</summary>
+    [CascadingParameter] public BoardStore Store { get; set; } = default!;
+
+    [Parameter, EditorRequired] public CardDto Card { get; set; } = default!;
+    [Parameter] public EventCallback<CardDto> OnOpen { get; set; }
+
+    private bool CanMove => Store.Can(Permission.CardMove);
+
+    private bool IsCarried => Keyboard.Card?.Id == Card.Id;
+
+    private bool IsFinal => Store.Steps.Any(step => step.Id == Card.StepId && step.IsFinal);
+
+    private IReadOnlyList<CardStatus> Statuses =>
+        CardStatuses.Of(new CardSituation(Card.Location, IsFinal, Card.IsBlocked, Card.DueDate), DateOnly.FromDateTime(DateTime.Today));
+
+    private string StatusVariable => Variable(Statuses[0].TokenKey());
+
+    private string TypeToken => $"type.{char.ToLowerInvariant(Card.CardType.ToString()[0])}{Card.CardType.ToString()[1..]}";
+
+    private string TypeVariable => Variable(TypeToken);
+
+    // Black or white, whichever reads better on this board's color for the type.
+    private string TypeInk => ChipText.On(Store.Board?.Palette.GetValueOrDefault(TypeToken) ?? "#FFFFFF");
+
+    private string TypeLabel => Card.CardType switch
+    {
+        CardType.TechDebt => "Tech debt",
+        CardType.AgentTask => "Agent task",
+        var type => type.ToString()
+    };
+
+    private int DaysHere => Math.Max(0, (int)(DateTime.UtcNow - Card.EnteredLocationAtUtc).TotalDays);
+
+    private string Classes =>
+        $"{(IsCarried ? "kh-card--carried" : "")} {(Card.ParentId is null ? "" : "kh-card--child")}";
+
+    private string AccessibleName =>
+        $"Card {Card.Number}, {Card.Title}. {string.Join(", ", Statuses.Select(Label))}.{AgentNote} Enter opens it{(CanMove ? ", Space picks it up" : "")}.";
+
+    private string AgentNote => Card.Agent is { } agent ? $" {AgentLabels.BadgeOf(agent)}." : "";
+
+    private static string Variable(string tokenKey) => tokenKey.Replace('.', '-');
+
+    private static string Label(CardStatus status) => status switch
+    {
+        CardStatus.InProgress => "In progress",
+        CardStatus.WaitingForPull => "Waiting for pull",
+        CardStatus.NotStarted => "Not started",
+        CardStatus.Tracked => "Waiting",
+        CardStatus.AtRisk => "At risk",
+        _ => status.ToString()
+    };
+
+    private async Task OnKeyAsync(KeyboardEventArgs key)
+    {
+        switch (key.Key)
+        {
+            case "Enter" when !IsCarried: await OnOpen.InvokeAsync(Card); break;
+            case " " when IsCarried: await Moves.DropCarriedAsync(CancellationToken.None); break;
+            case " " when CanMove: Moves.PickUp(Card); break;
+            case "ArrowLeft" when IsCarried: Moves.Step(-1); break;
+            case "ArrowRight" when IsCarried: Moves.Step(+1); break;
+            case "Escape" when IsCarried: Moves.CancelCarry(); break;
+        }
+    }
+}

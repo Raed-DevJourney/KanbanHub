@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KanbanHub.Data\KanbanHub.Data.csproj" />
+    <ProjectReference Include="..\KanbanHub.TestSupport\KanbanHub.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>

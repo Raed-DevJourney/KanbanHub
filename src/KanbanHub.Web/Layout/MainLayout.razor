@@ -1,0 +1,39 @@
+@inherits LayoutComponentBase
+@inject IEnumerable<HeaderExtension> HeaderExtensions
+@inject NavigationManager Navigation
+
+<a class="kh-skip-link" href="#main">Skip to content</a>
+
+<header class="kh-top">
+    <a class="kh-top__brand" href="">KanbanHub</a>
+    <nav aria-label="Main">
+        <NavLink href="" Match="NavLinkMatch.All">Boards</NavLink>
+        <AuthorizeView>
+            <InboxBadge />
+            <NavLink href="profile">Profile</NavLink>
+        </AuthorizeView>
+    </nav>
+    <div class="kh-top__user">
+        @foreach (HeaderExtension extension in HeaderExtensions)
+        {
+            <DynamicComponent Type="extension.Component" />
+        }
+        <AuthorizeView>
+            <span class="kh-top__name">@context.User.Identity?.Name</span>
+            @if (HeaderExtensions.Any() is false)
+            {
+                <button type="button" class="kh-button kh-button--quiet" @onclick="SignOut">Sign out</button>
+            }
+        </AuthorizeView>
+    </div>
+</header>
+
+<main id="main" class="kh-main">
+    @Body
+</main>
+
+<ToastHost />
+
+@code {
+    private void SignOut() => Navigation.NavigateToLogout("authentication/logout");
+}

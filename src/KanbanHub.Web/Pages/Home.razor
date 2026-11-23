@@ -1,0 +1,116 @@
+@page "/"
+@inject KanbanApi Api
+@inject Session Session
+@inject Notices Notices
+@inject NavigationManager Navigation
+
+<PageTitle>Boards · KanbanHub</PageTitle>
+
+<div class="kh-page-head">
+    <h1>Boards</h1>
+    @if (mayCreate)
+    {
+        <div class="kh-page-head__actions">
+            <button type="button" class="kh-button kh-button--primary" @onclick="() => creating = !creating" aria-expanded="@creating">New board</button>
+        </div>
+    }
+</div>
+
+@if (creating)
+{
+    <form class="kh-form-card" @onsubmit="CreateAsync" aria-label="New board">
+        <div class="kh-field">
+            <label for="board-name">Board name</label>
+            <input id="board-name" @bind="boardName" required maxlength="200" />
+        </div>
+        <div class="kh-field">
+            <label for="board-workspace">Workspace</label>
+            <select id="board-workspace" @bind="workspaceId">
+                <option value="@Guid.Empty">New workspace…</option>
+                @foreach (WorkspaceDto workspace in workspaces)
+                {
+                    <option value="@workspace.Id">@workspace.Name</option>
+                }
+            </select>
+        </div>
+        @if (workspaceId == Guid.Empty)
+        {
+            <div class="kh-field">
+                <label for="workspace-name">Workspace name</label>
+                <input id="workspace-name" @bind="workspaceName" required maxlength="200" />
+            </div>
+        }
+        <div class="kh-field">
+            <label for="board-template">Template</label>
+            <select id="board-template" @bind="templateKey">
+                @foreach (BoardTemplate template in BoardTemplates.All)
+                {
+                    <option value="@template.Key">@template.DisplayName (@string.Join(", ", template.Steps.Select(step => step.Name)))</option>
+                }
+            </select>
+        </div>
+        <button type="submit" class="kh-button kh-button--primary">Create board</button>
+    </form>
+}
+
+@if (boards is null)
+{
+    <p class="kh-loading" role="status">Loading your boards…</p>
+}
+else if (boards.Count == 0)
+{
+    <p class="kh-empty">You don't have a board yet. @(mayCreate ? "Create one to get started." : "Ask a board owner to add you.")</p>
+}
+else
+{
+    <ul class="kh-tiles">
+        @foreach (BoardSummaryDto board in boards)
+        {
+            <li><a class="kh-tile" href="boards/@board.Id">@board.Name</a></li>
+        }
+    </ul>
+}
+
+@code {
+    private IReadOnlyList<BoardSummaryDto>? boards;
+    private IReadOnlyList<WorkspaceDto> workspaces = [];
+    private bool mayCreate;
+    private bool creating;
+    private string boardName = "";
+    private string workspaceName = "";
+    private Guid workspaceId;
+    private string templateKey = BoardTemplates.QuickStart.Key;
+
+    protected override async Task OnInitializedAsync()
+    {
+        mayCreate = await Session.MayCreateBoardsAsync(CancellationToken.None);
+        workspaces = (await Api.ListWorkspacesAsync(CancellationToken.None)).Value as IReadOnlyList<WorkspaceDto> ?? [];
+        workspaceId = workspaces.FirstOrDefault()?.Id ?? Guid.Empty;
+
+        ApiResult<IReadOnlyList<BoardSummaryDto>> result = await Api.ListBoardsAsync(CancellationToken.None);
+        boards = result.Value as IReadOnlyList<BoardSummaryDto> ?? [];
+        if (result.Value is ApiProblem problem) Notices.ShowProblem(problem);
+    }
+
+    private async Task CreateAsync()
+    {
+        if (await ResolveWorkspaceAsync() is not { } workspace) return;
+
+        var request = new CreateBoardRequest(workspace, boardName, templateKey, TimeZoneInfo.Local.Id);
+        switch ((await Api.CreateBoardAsync(request, CancellationToken.None)).Value)
+        {
+            case BoardSummaryDto created: Navigation.NavigateTo($"boards/{created.Id}"); break;
+            case ApiProblem problem: Notices.ShowProblem(problem); break;
+        }
+    }
+
+    /// <summary>The chosen workspace, or a newly created one; null when creating it failed.</summary>
+    private async Task<Guid?> ResolveWorkspaceAsync()
+    {
+        if (workspaceId != Guid.Empty) return workspaceId;
+
+        object? result = (await Api.CreateWorkspaceAsync(workspaceName, CancellationToken.None)).Value;
+        if (result is ApiProblem problem) Notices.ShowProblem(problem);
+        return (result as WorkspaceDto)?.Id;
+    }
+}

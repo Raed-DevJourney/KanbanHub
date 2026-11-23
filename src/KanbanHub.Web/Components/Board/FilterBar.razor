@@ -1,0 +1,28 @@
+@* Filter chips (FR-V03). Each is a toggle button, so its state is announced, not only colored. *@
+@inject BoardFilter Filter
+
+<div class="kh-row" role="group" aria-label="Filter cards">
+    <input type="search" placeholder="Filter by title" aria-label="Filter by title" value="@Filter.Text"
+           @oninput="change => Filter.Search(change.Value?.ToString())" />
+    <button type="button" class="kh-chip" aria-pressed="@Pressed(Filter.BlockedOnly)" @onclick="Filter.ToggleBlocked">Blocked</button>
+    <button type="button" class="kh-chip" aria-pressed="@Pressed(Filter.LateOnly)" @onclick="Filter.ToggleLate">Late</button>
+    <button type="button" class="kh-chip" aria-pressed="@Pressed(Filter.AgentOnly)" @onclick="Filter.ToggleAgent">Agent working</button>
+    <select aria-label="Filter by card type" @onchange="ShowType">
+        <option value="">All types</option>
+        @foreach (CardType type in Enum.GetValues<CardType>())
+        {
+            <option value="@type" selected="@(Filter.Type == type)">@type</option>
+        }
+    </select>
+    @if (Filter.IsActive)
+    {
+        <button type="button" class="kh-button kh-button--quiet" @onclick="Filter.Clear">Clear filters</button>
+    }
+</div>
+
+@code {
+    private static string Pressed(bool on) => on ? "true" : "false";
+
+    private void ShowType(ChangeEventArgs change) =>
+        Filter.ShowType(Enum.TryParse(change.Value?.ToString(), out CardType type) ? type : null);
+}

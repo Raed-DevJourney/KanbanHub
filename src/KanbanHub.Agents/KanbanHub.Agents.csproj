@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The adapter in front of GitHub's agent APIs (specification section 10). Those APIs are in public preview,
+    so everything that knows their shape lives here, behind IAgentDispatcher and the Agents:Enabled flag.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KanbanHub.Domain\KanbanHub.Domain.csproj" />
+    <ProjectReference Include="..\KanbanHub.GitHub\KanbanHub.GitHub.csproj" />
+  </ItemGroup>
+
+</Project>

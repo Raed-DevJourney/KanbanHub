@@ -1,0 +1,121 @@
+@page "/boards/{BoardId:guid}"
+@implements IDisposable
+@inject BoardStore Store
+@inject BoardMoves Moves
+@inject DragState Drag
+@inject BoardFilter Filter
+@inject IJSRuntime JS
+
+<PageTitle>@(Store.Board?.Name ?? "Board") · KanbanHub</PageTitle>
+
+@if (Store.LoadProblem is { } problem)
+{
+    <h1>This board can't be shown</h1>
+    <p class="kh-error" role="alert">@problem.Detail</p>
+    <p><a href="">Back to your boards</a></p>
+}
+else if (Store.Board is not { } board || board.Id != BoardId)
+{
+    <p class="kh-loading" role="status">Loading the board…</p>
+}
+else
+{
+    <LiveBoard BoardId="BoardId" />
+
+    <div class="kh-page-head">
+        <h1>@board.Name</h1>
+        <FilterBar />
+        <div class="kh-page-head__actions">
+            <button type="button" class="kh-button" @onclick="() => Store.ReloadAsync(CancellationToken.None)">Refresh</button>
+            @if (Store.Can(Permission.CardMove))
+            {
+                <a class="kh-button" href="boards/@board.Id/standup">Standup</a>
+            }
+            @if (MaySeeSettings)
+            {
+                <a class="kh-button" href="boards/@board.Id/settings">Settings</a>
+            }
+        </div>
+    </div>
+
+    @if (!Store.Can(Permission.CardMove))
+    {
+        <p class="kh-hint">You can read this board. Ask its owner for access to move cards.</p>
+    }
+
+    <InsightsPanel BoardId="BoardId" OnOpen="Open" />
+
+    @* The store is cascaded so every board component re-renders when the board, a drag or a filter changes. *@
+    <CascadingValue Value="Store">
+        <div class="kh-board" style="@PaletteCss.Of(board)">
+            <BacklogPanel OnOpen="Open" />
+            @foreach (StepDto step in board.Steps)
+            {
+                <StepColumn Step="step" OnOpen="Open" @key="step.Id" />
+            }
+            <ParkingLot OnOpen="Open" />
+        </div>
+    </CascadingValue>
+
+    @if (openCardId is { } cardId)
+    {
+        <CardPanel CardId="cardId" OnClose="() => openCardId = null" OnOpenCard="other => openCardId = other" @key="cardId" />
+    }
+
+    @if (Moves.AwaitingReason is { } pending)
+    {
+        <ReasonDialog Title="@($"Move {pending.Card.Title} to {pending.Target.Label}")"
+                      Explanation="This move needs a reason: it goes backward, or it takes the step past its WIP limit. The reason is recorded."
+                      ConfirmLabel="Move" OnConfirm="reason => Moves.ConfirmReasonAsync(reason, CancellationToken.None)"
+                      OnCancel="Moves.CancelReason" />
+    }
+}
+
+@code {
+    private const Permission AnySetting = Permission.BoardSettingsEdit | Permission.WorkflowEdit | Permission.WipSet
+        | Permission.DoneRuleEdit | Permission.PaletteEdit | Permission.BoardMembersManage;
+
+    [Parameter] public Guid BoardId { get; set; }
+
+    private Guid? openCardId;
+
+    private bool MaySeeSettings => (Store.Granted & AnySetting) != Permission.None;
+
+    protected override void OnInitialized()
+    {
+        Store.Changed += Refresh;
+        Moves.Changed += Refresh;
+        Drag.Changed += Refresh;
+        Filter.Changed += Refresh;
+    }
+
+    protected override Task OnParametersSetAsync() =>
+        Store.Board?.Id == BoardId ? Task.CompletedTask : Store.LoadAsync(BoardId, CancellationToken.None);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Moves.CardToFocus is not { } cardId) return;
+
+        Moves.FocusRestored();
+        try
+        {
+            await JS.InvokeVoidAsync("kanbanHub.focus", $"card-{cardId}");
+        }
+        catch (JSException)
+        {
+            // Restoring focus is a convenience; the move itself already happened.
+        }
+    }
+
+    public void Dispose()
+    {
+        Store.Changed -= Refresh;
+        Moves.Changed -= Refresh;
+        Drag.Changed -= Refresh;
+        Filter.Changed -= Refresh;
+    }
+
+    private void Open(CardDto card) => openCardId = card.Id;
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+}

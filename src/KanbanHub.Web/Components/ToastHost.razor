@@ -1,0 +1,34 @@
+@* Shows notices as toasts and speaks every announcement through a live region (specification section 16.3). *@
+@implements IDisposable
+@inject Notices Notices
+
+<div class="kh-visually-hidden" role="status" aria-live="polite" aria-atomic="true">@Notices.Announcement</div>
+
+<div class="kh-toasts">
+    @foreach (Notice notice in Notices.Toasts)
+    {
+        <div class="kh-toast kh-toast--@notice.Kind.ToString().ToLowerInvariant()" @key="notice.Id">
+            <div>
+                <p class="kh-toast__message">@notice.Message</p>
+                @if (notice.Details.Count > 0)
+                {
+                    <ul class="kh-toast__details">
+                        @foreach (string detail in notice.Details)
+                        {
+                            <li>@detail</li>
+                        }
+                    </ul>
+                }
+            </div>
+            <button type="button" class="kh-icon-button" aria-label="Dismiss" @onclick="() => Notices.Dismiss(notice.Id)">×</button>
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => Notices.Changed += Refresh;
+
+    public void Dispose() => Notices.Changed -= Refresh;
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+}

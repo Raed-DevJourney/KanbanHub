@@ -1,0 +1,41 @@
+@*
+    The way to the inbox, with the number of unread notifications. A push on the real-time
+    connection says when to count again.
+*@
+@implements IDisposable
+@inject InboxState Inbox
+@inject LiveUpdates Live
+@inject Session Session
+
+<NavLink href="inbox" aria-label="@Label">
+    Inbox
+    @if (Inbox.UnreadCount > 0)
+    {
+        <span class="kh-count" aria-hidden="true">@Inbox.UnreadCount</span>
+    }
+</NavLink>
+
+@code {
+    private string Label => Inbox.UnreadCount == 0 ? "Inbox" : $"Inbox, {Inbox.UnreadCount} unread";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Inbox.Changed += Refresh;
+        Live.InboxChanged += Reload;
+
+        // Asking who is signed in is also when the server learns where this person's email goes.
+        await Session.GetMeAsync(CancellationToken.None);
+        await Inbox.LoadAsync(CancellationToken.None);
+        await Live.ConnectAsync(CancellationToken.None);
+    }
+
+    public void Dispose()
+    {
+        Inbox.Changed -= Refresh;
+        Live.InboxChanged -= Reload;
+    }
+
+    private void Reload() => InvokeAsync(() => Inbox.LoadAsync(CancellationToken.None));
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+}

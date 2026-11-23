@@ -1,0 +1,64 @@
+@*
+    Status and type colors (specification section 6). Each chip previews the color with the text color
+    the board will use on it, and shows the contrast that gives against the 4.5:1 of WCAG 2.2 AA.
+*@
+@inject KanbanApi Api
+@inject SettingsSaver Saver
+
+<form @onsubmit="SaveAsync" aria-label="Palette">
+    <table class="kh-table">
+        <thead>
+            <tr><th scope="col">Color for</th><th scope="col">Color</th><th scope="col">Preview</th><th scope="col">Text contrast</th><th scope="col"></th></tr>
+        </thead>
+        <tbody>
+            @foreach (string key in Palette.Defaults.Keys)
+            {
+                string color = colors[key];
+                <tr @key="key">
+                    <th scope="row">@Describe(key)</th>
+                    <td><input type="color" value="@color" aria-label="@($"Color for {Describe(key)}")" @onchange="change => colors[key] = change.Value?.ToString()?.ToUpperInvariant() ?? color" /></td>
+                    <td><span class="kh-swatch" style="background: @color; color: @ChipText.On(color)">@Describe(key)</span></td>
+                    <td>@ChipText.ContrastOn(color).ToString("0.0"):1</td>
+                    <td>
+                        @if (color != Palette.Defaults[key])
+                        {
+                            <button type="button" class="kh-button kh-button--quiet" @onclick="() => colors[key] = Palette.Defaults[key]">Reset</button>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <button type="submit" class="kh-button kh-button--primary" style="margin-top: 12px">Save palette</button>
+</form>
+
+@code {
+    [Parameter, EditorRequired] public BoardSnapshotDto Board { get; set; } = default!;
+
+    private Dictionary<string, string> colors = [];
+    private string loadedKey = "";
+
+    protected override void OnParametersSet()
+    {
+        string key = string.Join('|', Board.Palette.Select(color => color.Key + color.Value));
+        if (key == loadedKey) return;   // keep unsaved edits until the palette itself changes
+
+        loadedKey = key;
+        colors = Palette.Defaults.Keys.ToDictionary(token => token, token => Board.Palette.GetValueOrDefault(token, Palette.Defaults[token]));
+    }
+
+    /// <summary>"status.waitingForPull" reads as "Status: waiting for pull".</summary>
+    private static string Describe(string tokenKey)
+    {
+        string[] parts = tokenKey.Split('.');
+        string words = string.Concat(parts[1].Select(letter => char.IsUpper(letter) ? $" {char.ToLowerInvariant(letter)}" : letter.ToString()));
+        return $"{char.ToUpperInvariant(parts[0][0])}{parts[0][1..]}: {words}";
+    }
+
+    // Only the colors that differ from the defaults are stored.
+    private Task SaveAsync()
+    {
+        PaletteColor[] overrides = [.. colors.Where(color => color.Value != Palette.Defaults[color.Key]).Select(color => new PaletteColor(color.Key, color.Value))];
+        return Saver.CompleteAsync(Api.SetPaletteAsync(Board.Id, overrides, CancellationToken.None), "Palette saved.");
+    }
+}

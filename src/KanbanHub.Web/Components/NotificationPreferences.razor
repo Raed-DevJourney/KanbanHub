@@ -1,0 +1,59 @@
+@* Which channels tell the signed-in person about each kind of event. Some kinds can't be silenced in the app. *@
+@inject KanbanApi Api
+@inject Notices Notices
+
+<section aria-labelledby="preferences-title">
+    <h2 id="preferences-title">How you're told</h2>
+    <table class="kh-table">
+        <thead>
+            <tr>
+                <th scope="col">When</th>
+                <th scope="col">In the app</th>
+                <th scope="col">By email</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (NotificationPreferenceDto preference in preferences)
+            {
+                string when = NotificationLabels.Of(preference.Kind);
+                <tr @key="preference.Kind">
+                    <th scope="row">@when</th>
+                    <td>
+                        <input type="checkbox" aria-label="@($"{when}: in the app")" checked="@preference.InApp"
+                               disabled="@(!preference.CanTurnOffInApp)"
+                               @onchange="change => SaveAsync(preference with { InApp = (bool)change.Value! })" />
+                        @if (!preference.CanTurnOffInApp)
+                        {
+                            <span class="kh-hint">Always on</span>
+                        }
+                    </td>
+                    <td>
+                        <input type="checkbox" aria-label="@($"{when}: by email")" checked="@preference.Email"
+                               @onchange="change => SaveAsync(preference with { Email = (bool)change.Value! })" />
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
+
+@code {
+    private IReadOnlyList<NotificationPreferenceDto> preferences = [];
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if ((await Api.ListNotificationPreferencesAsync(CancellationToken.None)).Value is IReadOnlyList<NotificationPreferenceDto> loaded)
+            preferences = loaded;
+    }
+
+    private async Task SaveAsync(NotificationPreferenceDto preference)
+    {
+        var request = new SetNotificationPreferenceRequest(preference.Kind, preference.InApp, preference.Email);
+        ApiResult<Done> saved = await Api.SetNotificationPreferenceAsync(request, CancellationToken.None);
+        if (saved.Value is ApiProblem problem) Notices.ShowProblem(problem);
+
+        await LoadAsync();
+    }
+}

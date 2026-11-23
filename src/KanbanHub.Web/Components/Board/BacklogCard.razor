@@ -1,0 +1,40 @@
+@* A backlog card with the controls that arrange the backlog, shown only to people who may order it. *@
+
+<KanbanCard Card="Card" OnOpen="OnOpen" />
+@if (Store.Can(Permission.BacklogOrder))
+{
+    <div class="kh-row kh-backlog__tools">
+        <button type="button" class="kh-chip" aria-pressed="@(Card.IsReady ? "true" : "false")"
+                aria-label="@($"{(Card.IsReady ? "Remove" : "Put")} card {Card.Number} {(Card.IsReady ? "from" : "on")} the Ready list")"
+                @onclick="() => OnReorder.InvokeAsync(BacklogOrdering.ToggleReady(Store.Cards, Card))">Ready</button>
+        @if (Card.IsReady)
+        {
+            <button type="button" class="kh-icon-button" aria-label="@($"Move card {Card.Number} up")"
+                    @onclick="() => OnReorder.InvokeAsync(BacklogOrdering.Shift(Store.Cards, Card, -1))">↑</button>
+            <button type="button" class="kh-icon-button" aria-label="@($"Move card {Card.Number} down")"
+                    @onclick="() => OnReorder.InvokeAsync(BacklogOrdering.Shift(Store.Cards, Card, +1))">↓</button>
+        }
+        <select aria-label="@($"Priority bucket of card {Card.Number}")" value="@Card.PriorityBucket" @onchange="SetBucketAsync">
+            <option value="">Unsorted</option>
+            @for (byte bucket = 0; bucket <= CardContent.LowestPriorityBucket; bucket++)
+            {
+                <option value="@bucket">P@(bucket)</option>
+            }
+        </select>
+    </div>
+}
+
+@code {
+    /// <summary>Cascaded by the board page, so this component re-renders whenever the board changes.</summary>
+    [CascadingParameter] public BoardStore Store { get; set; } = default!;
+
+    [Parameter, EditorRequired] public CardDto Card { get; set; } = default!;
+    [Parameter] public EventCallback<CardDto> OnOpen { get; set; }
+    [Parameter] public EventCallback<BacklogOrder> OnReorder { get; set; }
+
+    private async Task SetBucketAsync(ChangeEventArgs change)
+    {
+        if (byte.TryParse(change.Value?.ToString(), out byte bucket))
+            await OnReorder.InvokeAsync(BacklogOrdering.SetBucket(Store.Cards, Card, bucket));
+    }
+}

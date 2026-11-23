@@ -1,0 +1,123 @@
+@*
+    What the AI noticed about the board (specification section 11): each insight with the points and cards behind
+    it, so people can check it. Insights only suggest. Accepting a WIP proposal is the one action here, and it is
+    shown to the people who may set limits.
+*@
+@inject KanbanApi Api
+@inject BoardStore Store
+@inject Notices Notices
+
+@if (Shown.Count > 0 || CanNarrate)
+{
+    <section class="kh-insights" aria-labelledby="insights-title">
+        <h2 id="insights-title">@(Only is null ? "Insights" : AiSuggestions.KindOf(Only.Value)) <span class="kh-hint">suggested by AI; check before you act</span></h2>
+
+        @foreach (InsightDto insight in Shown)
+        {
+            <article class="kh-insight" @key="insight.Id">
+                <h3>@insight.Title</h3>
+                <p>@insight.Summary</p>
+                @if (insight.Points.Count > 0)
+                {
+                    <ul>
+                        @foreach (string point in insight.Points)
+                        {
+                            <li>@point</li>
+                        }
+                    </ul>
+                }
+                @if (insight.Cards.Count > 0)
+                {
+                    <p class="kh-row" aria-label="Cards this is about">
+                        @foreach (int number in insight.Cards)
+                        {
+                            <button type="button" class="kh-chip" @onclick="() => OpenAsync(number)">@AiSuggestions.CiteCard(number, Store.Cards)</button>
+                        }
+                    </p>
+                }
+                <div class="kh-row">
+                    <span class="kh-hint">@AiSuggestions.KindOf(insight.Kind) · @insight.CreatedAtUtc.ToLocalTime().ToString("g")</span>
+                    @if (Store.Can(Permission.WipSet))
+                    {
+                        @if (insight.Proposal is { } proposal)
+                        {
+                            <button type="button" class="kh-button kh-button--primary" @onclick="() => AcceptAsync(insight)">
+                                Set @proposal.StepName to @proposal.ProposedLimit
+                            </button>
+                        }
+                        <button type="button" class="kh-button" @onclick="() => DismissAsync(insight)">Dismiss</button>
+                    }
+                </div>
+            </article>
+        }
+
+        @if (CanNarrate)
+        {
+            <div class="kh-row">
+                <button type="button" class="kh-button" disabled="@narrating" @onclick="NarrateAsync">Explain the forecast</button>
+            </div>
+            @if (narrative is not null)
+            {
+                <p class="kh-insight" role="status">@narrative</p>
+            }
+        }
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid BoardId { get; set; }
+
+    /// <summary>Shows one kind only, for example the brief in standup mode.</summary>
+    [Parameter] public AiFeature? Only { get; set; }
+
+    [Parameter] public EventCallback<CardDto> OnOpen { get; set; }
+
+    private IReadOnlyList<InsightDto> insights = [];
+    private Guid loadedFor;
+    private string? narrative;
+    private bool narrating;
+
+    private List<InsightDto> Shown => [.. insights.Where(insight => Only is null || insight.Kind == Only)];
+
+    private bool CanNarrate => Only is null && Store.CanUseAi && Store.Can(Permission.MetricsView);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedFor == BoardId) return;
+
+        loadedFor = BoardId;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() =>
+        insights = Store.Can(Permission.InsightsView)
+            ? (await Api.ListInsightsAsync(BoardId, CancellationToken.None)).Value as IReadOnlyList<InsightDto> ?? []
+            : [];
+
+    private Task OpenAsync(int number) =>
+        Store.Cards.FirstOrDefault(card => card.Number == number) is { } card ? OnOpen.InvokeAsync(card) : Task.CompletedTask;
+
+    /// <summary>The limit changes on the server as this person's decision; the board is read again to show it.</summary>
+    private async Task AcceptAsync(InsightDto insight)
+    {
+        if ((await Api.AcceptInsightAsync(BoardId, insight.Id, CancellationToken.None)).Value is ApiProblem problem) Notices.ShowProblem(problem);
+        else Notices.Show(NoticeKind.Success, $"{insight.Title}: done.");
+
+        await LoadAsync();
+        await Store.ReloadAsync(CancellationToken.None);
+    }
+
+    private async Task DismissAsync(InsightDto insight)
+    {
+        if ((await Api.DismissInsightAsync(BoardId, insight.Id, CancellationToken.None)).Value is ApiProblem problem) Notices.ShowProblem(problem);
+
+        await LoadAsync();
+    }
+
+    private async Task NarrateAsync()
+    {
+        narrating = true;
+        narrative = (await Api.NarrateForecastAsync(BoardId, CancellationToken.None).OrExplainAsync(Notices))?.Summary;
+        narrating = false;
+    }
+}

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The web app's logic without a browser: state, moves, filters and the API client against a stubbed server. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KanbanHub.Web\KanbanHub.Web.csproj" />
+  </ItemGroup>
+
+</Project>

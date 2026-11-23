@@ -1,0 +1,40 @@
+@*
+    Makes its content a place to drop the dragged card. Whether the drop is allowed is a preview from the
+    rules the browser knows; the server still decides.
+*@
+@inject BoardMoves Moves
+@inject DragState Drag
+@inject KeyboardMove Keyboard
+
+<div class="@Class @StateClass" @attributes="Attributes"
+     @ondragover:preventDefault="Preview is { IsAllowed: true }" @ondragover="() => { }" @ondrop="DropAsync">
+    @ChildContent(Preview)
+</div>
+
+@code {
+    /// <summary>Cascaded by the board page, so this component re-renders whenever the board changes.</summary>
+    [CascadingParameter] public BoardStore Store { get; set; } = default!;
+
+    [Parameter, EditorRequired] public BoardSlot Slot { get; set; } = default!;
+    [Parameter, EditorRequired] public RenderFragment<MovePreview?> ChildContent { get; set; } = default!;
+    [Parameter] public string Class { get; set; } = "";
+    [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? Attributes { get; set; }
+
+    /// <summary>What the rules say about dropping the dragged card here; null when nothing is being dragged over.</summary>
+    private MovePreview? Preview => Drag.Card is { } card && !Slot.Holds(card) ? Store.Preview(card, Slot) : null;
+
+    private string StateClass =>
+        Keyboard.Target == Slot ? "kh-zone--target"
+        : Preview is { IsAllowed: true } ? "kh-zone--open"
+        : Preview is not null ? "kh-zone--closed"
+        : "";
+
+    private async Task DropAsync()
+    {
+        MovePreview? preview = Preview;
+        CardDto? card = Drag.Card;
+        Drag.End();
+        if (card is not null && preview is { IsAllowed: true })
+            await Moves.MoveAsync(card, Slot, CancellationToken.None);
+    }
+}

@@ -1,0 +1,19 @@
+@* Lets a developer act as any persona of the local dev host. Debug builds only. *@
+@inject DevPersonaState Persona
+@inject NavigationManager Navigation
+
+<label class="kh-persona">
+    <span class="kh-visually-hidden">Act as</span>
+    <select value="@Persona.Key" @onchange="Switch" aria-label="Act as (local development)">
+        @foreach (var persona in DevSignIn.Personas)
+        {
+            <option value="@persona.Key">@persona.Name</option>
+        }
+    </select>
+</label>
+
+@code {
+    // A full reload starts every page from the new persona's point of view, as a real sign-in would.
+    private void Switch(ChangeEventArgs change) =>
+        Navigation.NavigateTo($"?{DevPersonaState.QueryKey}={change.Value}", forceLoad: true);
+}

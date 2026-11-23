@@ -1,0 +1,94 @@
+@*
+    The backlog (FR-B04): quick add, the ordered Ready list, then the unordered priority buckets.
+    Reordering and bucketing need backlog.order; pulling a card onto the board is an ordinary move.
+*@
+@inject BoardFilter Filter
+@inject KanbanApi Api
+@inject Notices Notices
+
+<DropTarget Slot="BoardSlot.Backlog" Class="kh-backlog" aria-label="Backlog">
+    <h2>Backlog</h2>
+
+    @if (Store.Can(Permission.BacklogCreate))
+    {
+        <form class="kh-backlog__add" @onsubmit="AddAsync">
+            <input @bind="newTitle" placeholder="Add a card and press Enter" aria-label="New card title" maxlength="300" />
+            <button type="submit" class="kh-button">Add</button>
+        </form>
+    }
+
+    <div class="kh-pile">
+        <div class="kh-pile__head">
+            <h3>Ready</h3>
+            <span class="kh-hint">@Ready.Count@(Store.Board?.ReadyListCap is { } cap ? $" of {cap}" : "")</span>
+        </div>
+        @foreach (CardDto card in Ready)
+        {
+            <BacklogCard Card="card" OnOpen="OnOpen" OnReorder="ReorderAsync" @key="card.Id" />
+        }
+    </div>
+
+    @foreach (byte? bucket in Buckets)
+    {
+        List<CardDto> pile = [.. Unordered.Where(card => card.PriorityBucket == bucket)];
+        @if (pile.Count > 0 || bucket is not null)
+        {
+            <div class="kh-pile">
+                <div class="kh-pile__head">
+                    <h3>@BucketName(bucket)</h3>
+                    <span class="kh-hint">@pile.Count</span>
+                </div>
+                @foreach (CardDto card in pile)
+                {
+                    <BacklogCard Card="card" OnOpen="OnOpen" OnReorder="ReorderAsync" @key="card.Id" />
+                }
+            </div>
+        }
+    }
+</DropTarget>
+
+@code {
+    /// <summary>Cascaded by the board page, so this component re-renders whenever the board changes.</summary>
+    [CascadingParameter] public BoardStore Store { get; set; } = default!;
+
+    private static readonly byte?[] Buckets = [0, 1, 2, 3, null];
+
+    [Parameter] public EventCallback<CardDto> OnOpen { get; set; }
+
+    private string newTitle = "";
+
+    private IEnumerable<CardDto> Visible =>
+        Store.CardsAt(BoardSlot.Backlog).Where(card => Filter.Matches(card, DateOnly.FromDateTime(DateTime.Today)));
+
+    private List<CardDto> Ready => [.. Visible.Where(card => card.IsReady)];
+
+    private IEnumerable<CardDto> Unordered => Visible.Where(card => !card.IsReady).OrderBy(card => card.Number);
+
+    private static string BucketName(byte? bucket) => bucket switch
+    {
+        0 => "P0 · Must have",
+        1 => "P1 · Should have",
+        2 => "P2 · Like to have",
+        3 => "P3 · Nice ideas",
+        _ => "Unsorted"
+    };
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newTitle) || Store.Board is not { } board) return;
+
+        object? result = (await Api.CreateCardAsync(board.Id, new CardContent { Title = newTitle.Trim() }, CancellationToken.None)).Value;
+        if (result is ApiProblem problem) Notices.ShowProblem(problem);
+        else newTitle = "";
+        await Store.ReloadAsync(CancellationToken.None);
+    }
+
+    private async Task ReorderAsync(BacklogOrder order)
+    {
+        if (Store.Board is not { } board) return;
+
+        if ((await Api.ReorderBacklogAsync(board.Id, order, CancellationToken.None)).Value is ApiProblem problem)
+            Notices.ShowProblem(problem);
+        await Store.ReloadAsync(CancellationToken.None);
+    }
+}

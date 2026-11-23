@@ -1,0 +1,81 @@
+@* The done rule of the step the card is in. Every required item must be ticked before the card can finish the step. *@
+@inject KanbanApi Api
+@inject BoardStore Store
+@inject Notices Notices
+
+@if (Items.Count > 0)
+{
+    <section aria-labelledby="checklist-title">
+        <h3 id="checklist-title">Done rule</h3>
+        <ul class="kh-checklist">
+            @foreach (ChecklistItemDto item in Items)
+            {
+                <li @key="item.Id">
+                    <label>
+                        <input type="checkbox" checked="@item.IsChecked" disabled="@(!CanTick)" @onchange="() => ToggleAsync(item)" />
+                        <span>@item.Text @(item.IsRequired ? "" : "(optional)")</span>
+                    </label>
+                </li>
+            }
+        </ul>
+        <p class="kh-hint">@Summary</p>
+        @if (Store.CanUseAi)
+        {
+            <button type="button" class="kh-button" disabled="@checking" @onclick="CheckAsync">Check with AI</button>
+        }
+        @if (review is { } reviewed)
+        {
+            <div class="kh-suggestion" role="status">
+                @if (reviewed.Unmet.Count == 0)
+                {
+                    <p>The AI found nothing that looks unmet. The checklist is still yours to tick.</p>
+                }
+                else
+                {
+                    <p class="kh-hint">The AI thinks these look unmet. It advises; the checklist decides.</p>
+                    <ul>
+                        @foreach (UnmetItem unmet in reviewed.Unmet)
+                        {
+                            <li><strong>@unmet.Item:</strong> @unmet.Evidence</li>
+                        }
+                    </ul>
+                }
+            </div>
+        }
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public CardDetailDto Card { get; set; } = default!;
+    [Parameter] public bool CanTick { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private DoneRuleReview? review;
+    private bool checking;
+
+    private List<ChecklistItemDto> Items => [.. Card.Checklist.Where(item => item.StepId == Card.Card.StepId)];
+
+    private string Summary
+    {
+        get
+        {
+            int open = Items.Count(item => item is { IsRequired: true, IsChecked: false });
+            return open == 0 ? "The done rule is met." : $"{open} required item{(open == 1 ? "" : "s")} left before this card can finish the step.";
+        }
+    }
+
+    private async Task ToggleAsync(ChecklistItemDto item)
+    {
+        if ((await Api.ToggleChecklistItemAsync(Card.Card.Id, item.Id, CancellationToken.None)).Value is ApiProblem problem)
+            Notices.ShowProblem(problem);
+        review = null;   // what the AI said was about the checklist as it was
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task CheckAsync()
+    {
+        checking = true;
+        review = await Api.ReviewDoneRuleAsync(Card.Card.Id, CancellationToken.None).OrExplainAsync(Notices);
+        checking = false;
+    }
+}

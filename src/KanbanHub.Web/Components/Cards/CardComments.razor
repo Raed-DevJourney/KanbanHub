@@ -1,0 +1,53 @@
+@*
+    The conversation on a card. Comments are untrusted text: they are shown as text, never as HTML,
+    until a sanitizing Markdown renderer is added.
+*@
+@inject KanbanApi Api
+@inject Notices Notices
+
+<section aria-labelledby="comments-title">
+    <h3 id="comments-title">Comments (@comments.Count)</h3>
+    <ul class="kh-comments">
+        @foreach (CommentDto comment in comments)
+        {
+            <li class="kh-comment" @key="comment.Id">
+                <span class="kh-hint">
+                    @comment.CreatedAtUtc.ToLocalTime().ToString("g")@(comment.ExternalAuthor is { } login ? $" · {login} on GitHub" : "")
+                </span>
+                <div>@comment.Body</div>
+            </li>
+        }
+    </ul>
+    @if (CanComment)
+    {
+        <form @onsubmit="AddAsync">
+            <div class="kh-field">
+                <label for="comment-text">Add a comment</label>
+                <textarea id="comment-text" @bind="draft" maxlength="10000" required></textarea>
+            </div>
+            <button type="submit" class="kh-button">Comment</button>
+        </form>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Guid CardId { get; set; }
+    [Parameter] public bool CanComment { get; set; }
+
+    private IReadOnlyList<CommentDto> comments = [];
+    private string draft = "";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() =>
+        comments = (await Api.ListCommentsAsync(CardId, CancellationToken.None)).Value as IReadOnlyList<CommentDto> ?? [];
+
+    private async Task AddAsync()
+    {
+        if ((await Api.AddCommentAsync(CardId, draft, CancellationToken.None)).Value is ApiProblem problem)
+            Notices.ShowProblem(problem);
+        else
+            draft = "";
+        await LoadAsync();
+    }
+}

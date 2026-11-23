@@ -1,0 +1,67 @@
+@* The board's own preferences, and deleting it. Deleting is a soft delete: the history stays for the audit trail. *@
+@using System.Text.Json.Nodes
+@inject KanbanApi Api
+@inject SettingsSaver Saver
+@inject BoardStore Store
+@inject NavigationManager Navigation
+
+<form class="kh-form-card" @onsubmit="SaveAsync" aria-label="General settings">
+    <div class="kh-field">
+        <label for="settings-name">Board name</label>
+        <input id="settings-name" @bind="name" required maxlength="200" />
+    </div>
+    <div class="kh-field">
+        <label for="settings-cap">Ready list cap <span class="kh-hint">empty for no cap</span></label>
+        <input id="settings-cap" type="number" min="1" max="@BoardPreferences.MaxReadyListCap" @bind="readyListCap" />
+    </div>
+    <button type="submit" class="kh-button kh-button--primary">Save</button>
+</form>
+
+@if (Store.Can(Permission.BoardDelete))
+{
+    <div class="kh-form-card">
+        <h2>Delete this board</h2>
+        <p>The board disappears for everyone. Its cards and history are kept for the audit trail.</p>
+        @if (confirmingDelete)
+        {
+            <p><strong>Delete @Board.Name?</strong></p>
+            <div class="kh-row">
+                <button type="button" class="kh-button kh-button--danger" @onclick="DeleteAsync">Yes, delete the board</button>
+                <button type="button" class="kh-button" @onclick="() => confirmingDelete = false">Keep it</button>
+            </div>
+        }
+        else
+        {
+            <button type="button" class="kh-button kh-button--danger" @onclick="() => confirmingDelete = true">Delete board…</button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public BoardSnapshotDto Board { get; set; } = default!;
+
+    private string name = "";
+    private short? readyListCap;
+    private bool confirmingDelete;
+    private string loadedKey = "";
+
+    protected override void OnParametersSet()
+    {
+        string key = $"{Board.Name}|{Board.ReadyListCap}";
+        if (key == loadedKey) return;   // keep unsaved edits until the settings themselves change
+
+        (loadedKey, name, readyListCap) = (key, Board.Name, Board.ReadyListCap);
+    }
+
+    private Task SaveAsync()
+    {
+        var patch = new JsonObject { ["name"] = name, ["readyListCap"] = readyListCap };
+        return Saver.CompleteAsync(Api.EditBoardAsync(Board.Id, patch, CancellationToken.None), "Board settings saved.");
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (await Saver.CompleteAsync(Api.DeleteBoardAsync(Board.Id, CancellationToken.None), "Board deleted."))
+            Navigation.NavigateTo("");
+    }
+}

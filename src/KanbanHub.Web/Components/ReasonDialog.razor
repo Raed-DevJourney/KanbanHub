@@ -1,0 +1,39 @@
+@* Asks why, before something that needs a reason: a backward move, a WIP override, a cancellation. *@
+
+<div class="kh-backdrop" @onclick="() => OnCancel.InvokeAsync()"></div>
+<div class="kh-dialog" role="dialog" aria-modal="true" aria-labelledby="reason-title" @onkeydown="OnKeyAsync">
+    <h2 id="reason-title">@Title</h2>
+    <p>@Explanation</p>
+    <form @onsubmit="ConfirmAsync">
+        <div class="kh-field">
+            <label for="reason-text">Reason</label>
+            <textarea id="reason-text" @ref="input" @bind="reason" @bind:event="oninput" maxlength="500" required></textarea>
+        </div>
+        <div class="kh-dialog__actions">
+            <button type="button" class="kh-button" @onclick="() => OnCancel.InvokeAsync()">Cancel</button>
+            <button type="submit" class="kh-button kh-button--primary" disabled="@string.IsNullOrWhiteSpace(reason)">@ConfirmLabel</button>
+        </div>
+    </form>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter, EditorRequired] public string Explanation { get; set; } = "";
+    [Parameter] public string ConfirmLabel { get; set; } = "Continue";
+    [Parameter] public EventCallback<string> OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private ElementReference input;
+    private string reason = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await input.FocusAsync();
+    }
+
+    private Task ConfirmAsync() =>
+        string.IsNullOrWhiteSpace(reason) ? Task.CompletedTask : OnConfirm.InvokeAsync(reason.Trim());
+
+    private Task OnKeyAsync(KeyboardEventArgs key) =>
+        key.Key == "Escape" ? OnCancel.InvokeAsync() : Task.CompletedTask;
+}

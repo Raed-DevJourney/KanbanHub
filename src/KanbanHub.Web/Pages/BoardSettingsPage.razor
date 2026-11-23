@@ -1,0 +1,73 @@
+@page "/boards/{BoardId:guid}/settings"
+@implements IDisposable
+@inject BoardStore Store
+
+<PageTitle>Settings · @(Store.Board?.Name ?? "Board") · KanbanHub</PageTitle>
+
+@if (Store.Board is not { } board || board.Id != BoardId)
+{
+    <p class="kh-loading" role="status">Loading the board…</p>
+}
+else
+{
+    <div class="kh-page-head">
+        <h1>@board.Name settings</h1>
+        <div class="kh-page-head__actions">
+            <a class="kh-button" href="boards/@board.Id">Back to the board</a>
+        </div>
+    </div>
+
+    @if (Tabs.Count == 0)
+    {
+        <p class="kh-empty">You can't change this board's settings. Ask its owner if you need to.</p>
+    }
+    else
+    {
+        <div class="kh-tabs" role="tablist" aria-label="Board settings">
+            @foreach (SettingsTab tab in Tabs)
+            {
+                <button type="button" role="tab" id="tab-@tab.Key" aria-selected="@(tab == Current ? "true" : "false")"
+                        aria-controls="settings-panel" @onclick="() => currentKey = tab.Key">@tab.Label</button>
+            }
+        </div>
+
+        <div id="settings-panel" role="tabpanel" aria-labelledby="tab-@Current.Key">
+            <DynamicComponent Type="Current.Component" Parameters="@(new Dictionary<string, object> { ["Board"] = board })" />
+        </div>
+    }
+}
+
+@code {
+    /// <summary>A settings tab and the permission that shows it (specification section 16.2).</summary>
+    private sealed record SettingsTab(string Key, string Label, Permission Needs, Type Component);
+
+    private static readonly SettingsTab[] AllTabs =
+    [
+        new("workflow", "Workflow", Permission.WorkflowEdit, typeof(WorkflowEditor)),
+        new("wip", "WIP limits", Permission.WipSet, typeof(WipLimitsEditor)),
+        new("done-rules", "Done rules", Permission.DoneRuleEdit, typeof(DoneRuleEditor)),
+        new("palette", "Palette", Permission.PaletteEdit, typeof(PaletteEditor)),
+        new("members", "Members", Permission.BoardMembersManage, typeof(MembersEditor)),
+        new("github", "GitHub", Permission.GitHubLinkConfigure, typeof(GitHubSettings)),
+        new("agents", "Agents", Permission.BoardSettingsEdit, typeof(AgentLimitSettings)),
+        new("ai", "AI", Permission.BoardSettingsEdit, typeof(AiSettingsTab)),
+        new("general", "General", Permission.BoardSettingsEdit, typeof(GeneralSettings))
+    ];
+
+    [Parameter] public Guid BoardId { get; set; }
+
+    private string? currentKey;
+
+    private List<SettingsTab> Tabs => [.. AllTabs.Where(tab => Store.Can(tab.Needs))];
+
+    private SettingsTab Current => Tabs.FirstOrDefault(tab => tab.Key == currentKey) ?? Tabs[0];
+
+    protected override void OnInitialized() => Store.Changed += Refresh;
+
+    protected override Task OnParametersSetAsync() =>
+        Store.Board?.Id == BoardId ? Task.CompletedTask : Store.LoadAsync(BoardId, CancellationToken.None);
+
+    public void Dispose() => Store.Changed -= Refresh;
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+}

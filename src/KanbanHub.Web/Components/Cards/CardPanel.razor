@@ -1,0 +1,97 @@
+@*
+    One card without leaving the board: its details, its done-rule checklist, what can be done to it
+    and its conversation. Every control is shown only to people who may use it; the server checks again.
+*@
+@implements IDisposable
+@inject KanbanApi Api
+@inject BoardStore Store
+@inject Notices Notices
+
+<aside class="kh-panel" aria-labelledby="card-panel-title" @onkeydown="OnKeyAsync">
+    @if (card is null)
+    {
+        <p class="kh-loading" role="status">Loading the card…</p>
+    }
+    else
+    {
+        <div class="kh-panel__head">
+            <h2 id="card-panel-title" tabindex="-1" @ref="heading">#@card.Card.Number @card.Card.Title</h2>
+            <button type="button" class="kh-icon-button" aria-label="Close card" @onclick="() => OnClose.InvokeAsync()">×</button>
+        </div>
+
+        <CardDetailsForm Card="card" CanEdit="CanEdit" OnChanged="ReloadAsync" />
+        <CardDuplicates Card="card" OnChanged="ReloadAsync" OnOpenCard="OnOpenCard" />
+        <CardChecklist Card="card" CanTick="Store.Can(Permission.CardEdit)" OnChanged="ReloadAsync" />
+        <CardActions Card="card" OnChanged="ReloadAsync" OnGone="() => OnClose.InvokeAsync()" />
+        <CardGitHub Card="card" OnChanged="ReloadAsync" />
+        <CardAgent Card="card" OnChanged="ReloadAsync" />
+        <CardComments CardId="card.Card.Id" CanComment="Store.Can(Permission.CommentCreate)" />
+    }
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public Guid CardId { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>Asks the page to show another card instead, for example the other one of a possible duplicate.</summary>
+    [Parameter] public EventCallback<Guid> OnOpenCard { get; set; }
+
+    private CardDetailDto? card;
+    private ElementReference heading;
+    private bool focusHeading;
+
+    // The matrix's "own cards" rule decides on the server; here it only decides whether to show the form.
+    private bool CanEdit => Store.Can(Permission.CardEdit) || Store.Can(Permission.BacklogCreate);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Store.Changed += FollowBoard;
+        await LoadAsync();
+        focusHeading = true;
+    }
+
+    public void Dispose() => Store.Changed -= FollowBoard;
+
+    /// <summary>
+    /// The board just changed, here or through a live update. When that touched this card (an agent's pull request
+    /// arrived, someone moved it), the panel reads the card again instead of showing what was true when it opened.
+    /// </summary>
+    private void FollowBoard()
+    {
+        CardDto? onBoard = Store.Board?.Cards.FirstOrDefault(shown => shown.Id == CardId);
+        if (card is null || onBoard is null || onBoard == card.Card) return;
+
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusHeading || card is null) return;
+
+        focusHeading = false;
+        await heading.FocusAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        switch ((await Api.GetCardAsync(CardId, CancellationToken.None)).Value)
+        {
+            case CardDetailDto loaded: card = loaded; break;
+            case ApiProblem problem: Notices.ShowProblem(problem); await OnClose.InvokeAsync(); break;
+        }
+    }
+
+    /// <summary>After any change: the card's new state here, and the board behind it.</summary>
+    private async Task ReloadAsync()
+    {
+        await LoadAsync();
+        await Store.ReloadAsync(CancellationToken.None);
+    }
+
+    private Task OnKeyAsync(KeyboardEventArgs key) =>
+        key.Key == "Escape" ? OnClose.InvokeAsync() : Task.CompletedTask;
+}

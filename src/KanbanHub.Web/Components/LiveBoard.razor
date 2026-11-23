@@ -1,0 +1,51 @@
+@*
+    Keeps the board in the store live: follows it on the real-time connection, refetches when someone
+    changes it, and says so when the connection is down (specification section 16.2).
+*@
+@implements IDisposable
+@inject LiveUpdates Live
+@inject BoardStore Store
+
+@if (Live.State == LiveState.Reconnecting)
+{
+    <p class="kh-live" role="status">Reconnecting… The board may be out of date.</p>
+}
+else if (Live.State == LiveState.Offline && hasTried)
+{
+    <p class="kh-live" role="status">
+        Live updates are off. Changes other people make won't appear by themselves.
+        <button type="button" class="kh-button" @onclick="() => Live.ReconnectAsync(CancellationToken.None)">Reconnect</button>
+    </p>
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid BoardId { get; set; }
+
+    private Guid? watching;
+    private bool hasTried;
+
+    protected override void OnInitialized()
+    {
+        Live.StateChanged += Refresh;
+        Live.BoardChanged += CatchUp;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (watching == BoardId) return;
+
+        watching = BoardId;
+        await Live.WatchAsync(BoardId, CancellationToken.None);
+        hasTried = true;
+    }
+
+    public void Dispose()
+    {
+        Live.StateChanged -= Refresh;
+        Live.BoardChanged -= CatchUp;
+    }
+
+    private void CatchUp() => InvokeAsync(() => Store.CatchUpAsync(CancellationToken.None));
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+}

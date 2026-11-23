@@ -1,0 +1,9 @@
+@* The pages MSAL navigates through while signing in and out. *@
+@page "/authentication/{action}"
+@attribute [AllowAnonymous]
+
+<RemoteAuthenticatorView Action="@Action" />
+
+@code {
+    [Parameter] public string? Action { get; set; }
+}

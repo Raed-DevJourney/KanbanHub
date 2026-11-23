@@ -1,0 +1,34 @@
+@* A card as the standup shows it: where it is, how long it has been there, and what blocks it. *@
+
+<button type="button" class="kh-card @(Item.NeedsAttention ? "kh-card--attention" : "")"
+        style="--kh-card-color: var(--kh-@(Item.Card.IsBlocked ? "status-blocked" : "border"))"
+        @onclick="() => OnOpen.InvokeAsync(Item.Card)">
+    <span class="kh-card__title">#@Item.Card.Number @Item.Card.Title</span>
+    <span class="kh-card__meta">
+        <span>@Place</span>
+        @if (Item.Card.IsBlocked)
+        {
+            <span class="kh-badge" style="--kh-badge-color: var(--kh-status-blocked)">Blocked</span>
+        }
+        @if (Item.IsAging)
+        {
+            <span class="kh-badge" style="--kh-badge-color: var(--kh-amber)">Aging</span>
+        }
+        <span>@Item.DaysInPlace d here</span>
+    </span>
+    @if (Item.Card.BlockedReason is { Length: > 0 } reason)
+    {
+        <span class="kh-standup__reason">@reason</span>
+    }
+</button>
+
+@code {
+    [Parameter, EditorRequired] public StandupCard Item { get; set; } = default!;
+    [Parameter] public EventCallback<CardDto> OnOpen { get; set; }
+
+    private string Place => Item.Card.Location switch
+    {
+        Location.Done => "Done, waiting to be pulled",
+        var location => SubColumns.NameOf(location)
+    };
+}

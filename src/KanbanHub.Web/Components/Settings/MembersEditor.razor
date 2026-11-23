@@ -1,0 +1,81 @@
+@*
+    Who holds which role on this board. People and groups are named by their Entra object id for now;
+    a directory picker comes with Microsoft Graph. Roles inherited from the workspace are not listed here.
+*@
+@inject KanbanApi Api
+@inject SettingsSaver Saver
+@inject Notices Notices
+
+<form @onsubmit="SaveAsync" aria-label="Members">
+    <table class="kh-table">
+        <thead>
+            <tr><th scope="col">Entra object id</th><th scope="col">Kind</th><th scope="col">Role</th><th scope="col"></th></tr>
+        </thead>
+        <tbody>
+            @foreach ((EditableMember member, int index) in members.Select((member, index) => (member, index)))
+            {
+                <tr @key="member">
+                    <td><input @bind="member.PrincipalId" required size="38" pattern="[0-9a-fA-F\-]{36}" aria-label="@($"Object id of member {index + 1}")" /></td>
+                    <td>
+                        <select @bind="member.Type" aria-label="@($"Kind of member {index + 1}")">
+                            <option value="@PrincipalType.User">Person</option>
+                            <option value="@PrincipalType.Group">Group</option>
+                            <option value="@PrincipalType.ServicePrincipal">Service</option>
+                        </select>
+                    </td>
+                    <td>
+                        <select @bind="member.RoleId" aria-label="@($"Role of member {index + 1}")">
+                            @foreach (BoardRole role in BuiltInRoles.All)
+                            {
+                                <option value="@role.Id">@role.Name</option>
+                            }
+                        </select>
+                    </td>
+                    <td><button type="button" class="kh-icon-button" aria-label="@($"Remove member {index + 1}")" @onclick="() => members.Remove(member)">Remove</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <div class="kh-row" style="margin-top: 12px">
+        <button type="button" class="kh-button" @onclick="() => members.Add(new EditableMember())">Add member</button>
+        <button type="submit" class="kh-button kh-button--primary">Save members</button>
+    </div>
+    <p class="kh-hint">A board always keeps at least one Owner. Changes reach people within a minute.</p>
+</form>
+
+@code {
+    private sealed class EditableMember
+    {
+        public string PrincipalId { get; set; } = "";
+        public PrincipalType Type { get; set; } = PrincipalType.User;
+        public short RoleId { get; set; } = BuiltInRoles.Member.Id;
+    }
+
+    [Parameter, EditorRequired] public BoardSnapshotDto Board { get; set; } = default!;
+
+    private List<EditableMember> members = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        switch ((await Api.ListMembersAsync(Board.Id, CancellationToken.None)).Value)
+        {
+            case IReadOnlyList<MemberAssignment> current:
+                members = [.. current.Select(member => new EditableMember { PrincipalId = member.PrincipalId.ToString(), Type = member.PrincipalType, RoleId = member.RoleId })];
+                break;
+            case ApiProblem problem:
+                Notices.ShowProblem(problem);
+                break;
+        }
+    }
+
+    private Task SaveAsync()
+    {
+        MemberAssignment[] assignments =
+        [
+            .. members
+                .Where(member => Guid.TryParse(member.PrincipalId, out _))
+                .Select(member => new MemberAssignment(Guid.Parse(member.PrincipalId), member.Type, member.RoleId))
+        ];
+        return Saver.CompleteAsync(Api.SetMembersAsync(Board.Id, assignments, CancellationToken.None), "Members saved.");
+    }
+}

@@ -1,0 +1,26 @@
+@* The parking lot: work blocked indefinitely, outside every step and outside WIP. Any card may be parked. *@
+
+<details class="kh-parking" open="@(Parked.Count > 0)">
+    <summary>Parking lot (@Parked.Count)</summary>
+    <DropTarget Slot="BoardSlot.ParkingLot" Class="kh-zone" role="list" aria-label="Parking lot">
+        @foreach (CardDto card in Parked)
+        {
+            <div role="listitem" @key="card.Id">
+                <KanbanCard Card="card" OnOpen="OnOpen" />
+            </div>
+        }
+        @if (Parked.Count == 0)
+        {
+            <p class="kh-hint">Drop a card here to park it.</p>
+        }
+    </DropTarget>
+</details>
+
+@code {
+    /// <summary>Cascaded by the board page, so this component re-renders whenever the board changes.</summary>
+    [CascadingParameter] public BoardStore Store { get; set; } = default!;
+
+    [Parameter] public EventCallback<CardDto> OnOpen { get; set; }
+
+    private List<CardDto> Parked => [.. Store.CardsAt(BoardSlot.ParkingLot)];
+}

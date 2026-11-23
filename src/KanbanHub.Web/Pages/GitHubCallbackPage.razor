@@ -1,0 +1,47 @@
+@*
+    Where GitHub sends the browser back after "Connect GitHub". GitHub's redirect can't carry the person's sign-in,
+    so this page hands the code and state to the API, which checks that the attempt is this person's.
+*@
+@page "/github/callback"
+@inject KanbanApi Api
+@inject NavigationManager Navigation
+
+<PageTitle>Connecting GitHub · KanbanHub</PageTitle>
+
+<div class="kh-page-head">
+    <h1>Connecting GitHub</h1>
+</div>
+
+@if (problem is null)
+{
+    <p class="kh-loading" role="status">Finishing the connection…</p>
+}
+else
+{
+    <p class="kh-error" role="alert">@problem</p>
+    <p><a class="kh-button" href="profile">Back to your profile</a></p>
+}
+
+@code {
+    private const string Declined = "GitHub sent no authorization back. Start connecting again from your profile.";
+
+    [SupplyParameterFromQuery] public string? Code { get; set; }
+    [SupplyParameterFromQuery] public string? State { get; set; }
+
+    private string? problem;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrEmpty(Code) || string.IsNullOrEmpty(State))
+        {
+            problem = Declined;
+            return;
+        }
+
+        switch ((await Api.CompleteGitHubConnectionAsync(Code, State, CancellationToken.None)).Value)
+        {
+            case GitHubConnectionDto: Navigation.NavigateTo("profile", replace: true); break;
+            case ApiProblem failed: problem = failed.Detail ?? failed.Title; break;
+        }
+    }
+}

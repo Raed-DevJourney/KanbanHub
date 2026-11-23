@@ -1,0 +1,39 @@
+@*
+    How many agent sessions the board allows at once (specification section 10.2). Every session ends in a pull
+    request that people review, so the limit protects review, not the agents.
+*@
+@using System.Text.Json.Nodes
+@inject KanbanApi Api
+@inject SettingsSaver Saver
+
+<form class="kh-form-card" @onsubmit="SaveAsync" aria-label="Agent settings">
+    <div class="kh-field">
+        <label for="settings-agents">Agent sessions open at once <span class="kh-hint">0 keeps agents off this board</span></label>
+        <input id="settings-agents" type="number" min="0" max="@BoardPreferences.MaxAgentConcurrencyLimit" @bind="limit" required />
+    </div>
+    <p class="kh-hint">
+        A session stays open until its pull request is merged or closed. A card an agent works on still counts toward
+        its step's WIP limit. Which steps are open to agents is set under Workflow.
+    </p>
+    <button type="submit" class="kh-button kh-button--primary">Save</button>
+</form>
+
+@code {
+    [Parameter, EditorRequired] public BoardSnapshotDto Board { get; set; } = default!;
+
+    private int limit;
+    private int loadedLimit = -1;
+
+    protected override void OnParametersSet()
+    {
+        if (loadedLimit == Board.AgentConcurrencyLimit) return;   // keep an unsaved edit until the setting itself changes
+
+        loadedLimit = limit = Board.AgentConcurrencyLimit;
+    }
+
+    private Task SaveAsync()
+    {
+        var patch = new JsonObject { ["agentConcurrencyLimit"] = limit };
+        return Saver.CompleteAsync(Api.EditBoardAsync(Board.Id, patch, CancellationToken.None), "Agent settings saved.");
+    }
+}

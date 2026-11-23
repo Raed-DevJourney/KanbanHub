@@ -1,0 +1,32 @@
+@*
+    A sub-column of a step. A full step stays visible and says why it won't take the card,
+    pointing at work to help finish instead (specification section 5.2).
+*@
+@inject BoardFilter Filter
+
+<DropTarget Slot="Slot" Class="@ZoneClass" role="list" aria-label="@Slot.Label">
+    <span class="kh-zone__title">@SubColumns.NameOf(Slot.Location)</span>
+    @foreach (CardDto card in Cards)
+    {
+        <div role="listitem" @key="card.Id">
+            <KanbanCard Card="card" OnOpen="OnOpen" />
+        </div>
+    }
+    @if (context is { IsLegal: true, IsFull: true } && Slot.Step is { } step)
+    {
+        <p class="kh-zone__hint" role="status">@step.Name is full (@Store.WipCountOf(step)/@step.WipLimit). Help finish a card here first.</p>
+    }
+</DropTarget>
+
+@code {
+    /// <summary>Cascaded by the board page, so this component re-renders whenever the board changes.</summary>
+    [CascadingParameter] public BoardStore Store { get; set; } = default!;
+
+    [Parameter, EditorRequired] public BoardSlot Slot { get; set; } = default!;
+    [Parameter] public EventCallback<CardDto> OnOpen { get; set; }
+
+    private string ZoneClass => Slot.Location is Location.Track ? "kh-zone kh-zone--blocked" : "kh-zone";
+
+    private IEnumerable<CardDto> Cards =>
+        Store.CardsAt(Slot).Where(card => Filter.Matches(card, DateOnly.FromDateTime(DateTime.Today)));
+}

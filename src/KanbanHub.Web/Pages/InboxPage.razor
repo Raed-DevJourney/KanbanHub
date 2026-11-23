@@ -1,0 +1,66 @@
+@page "/inbox"
+@implements IDisposable
+@inject InboxState Inbox
+
+<PageTitle>Inbox · KanbanHub</PageTitle>
+
+<div class="kh-page-head">
+    <h1>Inbox</h1>
+    <div class="kh-page-head__actions">
+        <button type="button" class="kh-button" disabled="@(Inbox.UnreadCount == 0)"
+                @onclick="() => Inbox.MarkAllReadAsync(CancellationToken.None)">Mark all read</button>
+    </div>
+</div>
+
+@if (Inbox.Notifications.Count == 0)
+{
+    <p class="kh-empty">Nothing needs your attention.</p>
+}
+else
+{
+    <ul class="kh-inbox">
+        @foreach (NotificationDto notification in Inbox.Notifications)
+        {
+            <li class="kh-notification @(notification.IsRead ? "" : "kh-notification--unread")" @key="notification.Id">
+                <div>
+                    <a class="kh-notification__title" href="boards/@notification.BoardId">@notification.Title</a>
+                    @if (!notification.IsRead)
+                    {
+                        <span class="kh-badge">Unread</span>
+                    }
+                    @if (notification.Detail is { Length: > 0 } detail)
+                    {
+                        <p>@detail</p>
+                    }
+                    <p class="kh-hint">@NotificationLabels.Of(notification.Kind) · @notification.CreatedAtUtc.ToLocalTime().ToString("g")</p>
+                </div>
+                <div class="kh-row">
+                    @if (!notification.IsRead)
+                    {
+                        <button type="button" class="kh-button" @onclick="() => Inbox.MarkReadAsync(notification, CancellationToken.None)">Mark read</button>
+                    }
+                    <button type="button" class="kh-button" @onclick="() => Inbox.SnoozeAsync(notification, InboxState.AnHour, CancellationToken.None)">Snooze 1 hour</button>
+                    <button type="button" class="kh-button" @onclick="() => Inbox.SnoozeAsync(notification, InboxState.ADay, CancellationToken.None)">Snooze 1 day</button>
+                    @if (notification.CardId is not null)
+                    {
+                        <button type="button" class="kh-button" @onclick="() => Inbox.MuteCardAsync(notification, CancellationToken.None)">Mute this card</button>
+                    }
+                </div>
+            </li>
+        }
+    </ul>
+}
+
+<NotificationPreferences />
+
+@code {
+    protected override Task OnInitializedAsync()
+    {
+        Inbox.Changed += Refresh;
+        return Inbox.LoadAsync(CancellationToken.None);
+    }
+
+    public void Dispose() => Inbox.Changed -= Refresh;
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+}

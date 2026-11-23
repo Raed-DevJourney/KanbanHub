@@ -1,0 +1,87 @@
+# Builds, tests and packages every pull request and every push to main (specification section 18.1).
+#
+# It deploys only on demand: KanbanHub is run locally (DECISIONS, item 123), so a push never touches Azure.
+# "Run workflow" on main deploys the environment you pick; prod also waits for the reviewers of its GitHub
+# environment.
+#
+# Every action is pinned to a commit; the comment after it names the release that commit is.
+name: ci-cd
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where to deploy main
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels the run of the older one. A run on main that has started always
+# finishes; the next one waits for it.
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Build, warnings as errors
+        run: dotnet build KanbanHub.slnx --configuration Release -warnaserror
+
+      # The integration tests start their own SQL Server 2025 container (Testcontainers), so they need Docker.
+      - name: Test
+        run: dotnet test --solution KanbanHub.slnx --configuration Release --no-build
+
+      - name: Check the infrastructure templates
+        run: az bicep build --file infra/main.bicep --stdout > /dev/null
+
+      - name: Publish
+        run: |
+          dotnet publish src/KanbanHub.Api --configuration Release --output out/api
+          dotnet publish src/KanbanHub.Workers --configuration Release --output out/workers
+          dotnet publish src/KanbanHub.Web --configuration Release --output out/web
+          cp src/KanbanHub.Database/bin/Release/KanbanHub.Database.dacpac out/
+
+      # Zipped here because a function app's output has a folder whose name starts with a dot (.azurefunctions),
+      # and artifacts leave such folders out.
+      - name: Package the function apps
+        run: |
+          (cd out/api && zip --quiet --recurse-paths ../api.zip .)
+          (cd out/workers && zip --quiet --recurse-paths ../workers.zip .)
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: drop
+          if-no-files-found: error
+          path: |
+            out/api.zip
+            out/workers.zip
+            out/web/wwwroot
+            out/KanbanHub.Database.dacpac
+
+  deploy:
+    name: Deploy
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write   # to sign in to Azure with OpenID Connect; no Azure secret is stored
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: ${{ inputs.environment }}

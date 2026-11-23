@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    A local stand-in for the Functions host: the real endpoints over HTTP against a local SQL Server,
+    with made-up sign-ins instead of Entra. For development machines only; it is never deployed.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SqlServer.DacFx" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KanbanHub.Api\KanbanHub.Api.csproj" />
+  </ItemGroup>
+
+  <!-- The dev database is deployed from the same dacpac that ships. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KanbanHub.Database\KanbanHub.Database.sqlproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" Private="false" />
+    <None Include="..\..\src\KanbanHub.Database\bin\$(Configuration)\KanbanHub.Database.dacpac"
+          Link="KanbanHub.Database.dacpac" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

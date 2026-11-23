@@ -1,0 +1,154 @@
+@*
+    The card's coding agent: the pull requests that came back, how the last session went, and the form that sends
+    the card to an agent. Sending is shown only to people with agent.dispatch; the server checks again.
+*@
+@inject KanbanApi Api
+@inject BoardStore Store
+@inject Notices Notices
+
+@if (Card.Card.Issue is { } issue && (desk is not null || Card.PullRequests.Count > 0))
+{
+    <section aria-labelledby="agent-title">
+        <h3 id="agent-title">Agent</h3>
+
+        @if (Card.PullRequests.Count > 0)
+        {
+            <ul class="kh-checklist" aria-label="Pull requests">
+                @foreach (PullRequestDto pullRequest in Card.PullRequests)
+                {
+                    <li>
+                        <a href="@pullRequest.Url" target="_blank" rel="noopener">Pull request #@pullRequest.Number</a>
+                        <span class="kh-badge">@AgentLabels.StateOf(pullRequest)</span>
+                    </li>
+                }
+            </ul>
+        }
+
+        @if (desk?.Latest is { } session)
+        {
+            <p role="status">@AgentLabels.Describe(session)</p>
+            @if (session.State.IsOpen() && CanDispatch)
+            {
+                <button type="button" class="kh-button" @onclick="EndAsync">Stop tracking</button>
+                <p class="kh-hint">Stopping frees the board's agent slot. To stop the agent itself, unassign it on GitHub.</p>
+            }
+        }
+
+        @if (desk is { } current && CanDispatch && current.Latest?.State.IsOpen() != true)
+        {
+            @if (current.WhyNot is { } whyNot)
+            {
+                <p class="kh-hint">@whyNot</p>
+                @if (!current.IsEnabled)
+                {
+                    <p><a href="@issue.Url" target="_blank" rel="noopener">Open the issue on GitHub</a></p>
+                }
+                else if (current.GitHubLogin is null)
+                {
+                    <p><a href="profile">Connect GitHub in your profile</a></p>
+                }
+            }
+            else
+            {
+                <form @onsubmit="SendAsync" aria-label="Send to agent">
+                    <div class="kh-field">
+                        <label for="agent-key">Agent</label>
+                        <select id="agent-key" @bind="agentKey">
+                            @foreach (AgentDto agent in current.Agents)
+                            {
+                                <option value="@agent.Key">@agent.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="kh-field">
+                        <label for="agent-branch">Base branch</label>
+                        <input id="agent-branch" @bind="baseBranch" required maxlength="@DispatchRules.MaxBranchLength" />
+                    </div>
+                    <div class="kh-field">
+                        <label for="agent-model">Model <span class="kh-hint">optional; empty for the agent's default</span></label>
+                        <input id="agent-model" @bind="model" maxlength="100" />
+                    </div>
+                    <div class="kh-field">
+                        <label for="agent-instructions">Instructions <span class="kh-hint">optional; the card and its done rule are sent along</span></label>
+                        <textarea id="agent-instructions" rows="4" @bind="instructions" maxlength="@AgentInstructions.MaxTeamInstructionsLength"></textarea>
+                        @if (Store.CanUseAi)
+                        {
+                            <button type="button" class="kh-button" disabled="@drafting" @onclick="DraftAsync">Draft with AI</button>
+                            <span class="kh-hint">a draft to edit; nothing is sent until you send it</span>
+                        }
+                    </div>
+                    <p class="kh-hint">
+                        The agent works in @current.Repository as @current.GitHubLogin, and its usage is billed to your Copilot plan.
+                        @current.OpenSessions of @current.SessionLimit agent sessions are open on this board.
+                    </p>
+                    <button type="submit" class="kh-button kh-button--primary" disabled="@sending">Send to agent</button>
+                </form>
+            }
+        }
+    </section>
+}
+
+@code {
+    private const string DefaultBranch = "main";
+
+    [Parameter, EditorRequired] public CardDetailDto Card { get; set; } = default!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private AgentDeskDto? desk;
+    private string loadedFor = "";
+    private string agentKey = "";
+    private string baseBranch = DefaultBranch;
+    private string? model;
+    private string? instructions;
+    private bool sending;
+    private bool drafting;
+
+    private bool CanDispatch => Store.Can(Permission.AgentDispatch);
+
+    /// <summary>The desk is asked again whenever the card changed: its place and its sessions decide what is possible.</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        string key = $"{Card.Card.Id}|{Card.Card.ETag}|{Card.Card.Agent}|{Card.PullRequests.Count}";
+        if (Card.Card.Issue is null || key == loadedFor) return;
+
+        loadedFor = key;
+        desk = (await Api.GetAgentDeskAsync(Card.Card.Id, CancellationToken.None)).Value as AgentDeskDto;
+        agentKey = desk?.Agents.FirstOrDefault()?.Key ?? "";
+    }
+
+    private async Task SendAsync()
+    {
+        sending = true;
+        var request = new DispatchAgentRequest(agentKey, baseBranch, instructions, string.IsNullOrWhiteSpace(model) ? null : model);
+        ApiResult<AgentSessionDto> result = await Api.DispatchAgentAsync(Card.Card.Id, request, CancellationToken.None);
+        sending = false;
+
+        if (result.Value is ApiProblem problem) Notices.ShowProblem(problem);
+        else Notices.Show(NoticeKind.Success, $"Sent to {AgentLabels.NameOf(agentKey)}.");
+
+        await ChangedAsync();
+    }
+
+    private async Task DraftAsync()
+    {
+        drafting = true;
+        if (await Api.DraftAgentInstructionsAsync(Card.Card.Id, CancellationToken.None).OrExplainAsync(Notices) is { } draft)
+            instructions = draft.Instructions;
+        drafting = false;
+    }
+
+    private async Task EndAsync()
+    {
+        if ((await Api.EndAgentSessionAsync(Card.Card.Id, CancellationToken.None)).Value is ApiProblem problem) Notices.ShowProblem(problem);
+        else Notices.Show(NoticeKind.Success, "The session is no longer tracked.");
+
+        await ChangedAsync();
+    }
+
+    /// <summary>The card may not have changed itself (a refused dispatch), so the desk is asked again either way.</summary>
+    private Task ChangedAsync()
+    {
+        loadedFor = "";
+        return OnChanged.InvokeAsync();
+    }
+}

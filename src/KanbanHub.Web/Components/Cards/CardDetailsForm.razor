@@ -1,0 +1,138 @@
+@* The fields people edit directly. Saving sends only what changed, as a JSON merge patch with the card's ETag. *@
+@using System.Text.Json.Nodes
+@inject KanbanApi Api
+@inject BoardStore Store
+@inject Notices Notices
+
+<section aria-label="Details">
+    <form @onsubmit="SaveAsync">
+        <fieldset disabled="@(!CanEdit)" style="border: 0; padding: 0; margin: 0">
+            <div class="kh-field">
+                <label for="card-title">Title</label>
+                <input id="card-title" @bind="title" required maxlength="300" />
+            </div>
+            <div class="kh-row">
+                <div class="kh-field">
+                    <label for="card-type">Type</label>
+                    <select id="card-type" @bind="type">
+                        @foreach (CardType option in Enum.GetValues<CardType>())
+                        {
+                            <option value="@option">@option</option>
+                        }
+                    </select>
+                </div>
+                <div class="kh-field">
+                    <label for="card-bucket">Priority</label>
+                    <select id="card-bucket" @bind="bucket">
+                        <option value="">Unsorted</option>
+                        @for (byte option = 0; option <= CardContent.LowestPriorityBucket; option++)
+                        {
+                            <option value="@option">P@(option)</option>
+                        }
+                    </select>
+                </div>
+                <div class="kh-field">
+                    <label for="card-origin">Origin</label>
+                    <select id="card-origin" @bind="origin">
+                        <option value="">None</option>
+                        @foreach (string originCode in CardContent.OriginCodes)
+                        {
+                            <option value="@originCode">@originCode</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <div class="kh-row">
+                <div class="kh-field">
+                    <label for="card-due">Due date</label>
+                    <input id="card-due" type="date" @bind="dueDate" />
+                </div>
+                <div class="kh-field">
+                    <label for="card-estimate">Estimated tasks</label>
+                    <input id="card-estimate" type="number" min="0" @bind="estimatedTasks" />
+                </div>
+            </div>
+            <div class="kh-field">
+                <label for="card-description">Description <span class="kh-hint">Markdown</span></label>
+                <textarea id="card-description" @bind="description"></textarea>
+            </div>
+            @if (triageNote is not null)
+            {
+                <p class="kh-suggestion" role="status">Suggested by AI: @triageNote Save to keep the type, priority and origin, or change them first.</p>
+            }
+            @if (CanEdit)
+            {
+                <button type="submit" class="kh-button kh-button--primary">Save</button>
+                @if (Store.CanUseAi)
+                {
+                    <button type="button" class="kh-button" disabled="@suggesting" @onclick="SuggestAsync">Suggest type and priority</button>
+                }
+            }
+        </fieldset>
+    </form>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public CardDetailDto Card { get; set; } = default!;
+    [Parameter] public bool CanEdit { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private string title = "";
+    private string? description;
+    private CardType type;
+    private string bucket = "";
+    private string origin = "";
+    private DateOnly? dueDate;
+    private short? estimatedTasks;
+    private string loadedETag = "";
+    private string? triageNote;
+    private bool suggesting;
+
+    protected override void OnParametersSet()
+    {
+        if (loadedETag == Card.Card.ETag) return;   // keep what the person is typing unless the card itself changed
+
+        loadedETag = Card.Card.ETag;
+        title = Card.Card.Title;
+        description = Card.Description;
+        type = Card.Card.CardType;
+        bucket = Card.Card.PriorityBucket?.ToString() ?? "";
+        origin = Card.Card.Origin ?? "";
+        dueDate = Card.Card.DueDate;
+        estimatedTasks = Card.EstimatedTasks;
+    }
+
+    private async Task SaveAsync()
+    {
+        if ((await Api.EditCardAsync(Card.Card.Id, Card.Card.ETag, BuildPatch(), CancellationToken.None)).Value is ApiProblem problem)
+            Notices.ShowProblem(problem);
+        else
+            Notices.Show(NoticeKind.Success, "Card saved.");
+        triageNote = null;
+        await OnChanged.InvokeAsync();
+    }
+
+    /// <summary>Puts the AI's triage into the form. The card changes only when the person saves.</summary>
+    private async Task SuggestAsync()
+    {
+        suggesting = true;
+        if (await Api.SuggestTriageAsync(Card.Card.Id, CancellationToken.None).OrExplainAsync(Notices) is { } suggestion)
+        {
+            (type, bucket, origin) = (suggestion.CardType, suggestion.PriorityBucket.ToString(), suggestion.Origin ?? "");
+            triageNote = suggestion.Why;
+        }
+
+        suggesting = false;
+    }
+
+    private JsonObject BuildPatch() => new()
+    {
+        ["title"] = title,
+        ["description"] = string.IsNullOrWhiteSpace(description) ? null : description,
+        ["cardType"] = type.ToString(),
+        ["priorityBucket"] = byte.TryParse(bucket, out byte chosen) ? chosen : null,
+        ["origin"] = origin.Length > 0 ? origin : null,
+        ["dueDate"] = dueDate?.ToString("yyyy-MM-dd"),
+        ["estimatedTasks"] = estimatedTasks
+    };
+}

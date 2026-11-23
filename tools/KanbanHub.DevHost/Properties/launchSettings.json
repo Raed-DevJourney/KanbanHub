@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "KanbanHub.DevHost": {
+      "commandName": "Project",
+      "applicationUrl": "http://localhost:7071",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

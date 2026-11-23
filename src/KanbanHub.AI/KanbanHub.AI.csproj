@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The model behind the AI features (specification section 11.2): an IChatClient over an Azure OpenAI deployment
+    in Foundry, reached with the app's managed identity. The features, their prompts and their grounding checks
+    live in the Domain; this project only knows how to ask.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Azure.AI.OpenAI" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KanbanHub.Domain\KanbanHub.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

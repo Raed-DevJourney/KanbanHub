@@ -1,0 +1,44 @@
+@*
+    Cards the duplicate finder thinks are the same work as this one (specification section 11.1). It only points:
+    people open the other card, and say so when the two are not duplicates.
+*@
+@inject KanbanApi Api
+@inject BoardStore Store
+@inject Notices Notices
+
+@if (Card.Duplicates.Count > 0)
+{
+    <section aria-labelledby="duplicates-title">
+        <h3 id="duplicates-title">Possible duplicates <span class="kh-hint">found by comparing card texts</span></h3>
+        <ul class="kh-checklist">
+            @foreach (DuplicateDto duplicate in Card.Duplicates)
+            {
+                <li class="kh-row" @key="duplicate.CardId">
+                    <button type="button" class="kh-chip" @onclick="() => OnOpenCard.InvokeAsync(duplicate.CardId)">#@duplicate.Number @duplicate.Title</button>
+                    <span class="kh-hint">@duplicate.SimilarityPercent% alike</span>
+                    @if (Store.Can(Permission.CardEdit))
+                    {
+                        <button type="button" class="kh-button" @onclick="() => DismissAsync(duplicate)"
+                                aria-label="@($"Card {duplicate.Number} is not a duplicate")">Not a duplicate</button>
+                    }
+                </li>
+            }
+        </ul>
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public CardDetailDto Card { get; set; } = default!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>Asks the page to show the other card of a pair.</summary>
+    [Parameter] public EventCallback<Guid> OnOpenCard { get; set; }
+
+    private async Task DismissAsync(DuplicateDto duplicate)
+    {
+        if ((await Api.DismissDuplicateAsync(Card.Card.Id, duplicate.CardId, CancellationToken.None)).Value is ApiProblem problem)
+            Notices.ShowProblem(problem);
+
+        await OnChanged.InvokeAsync();
+    }
+}

@@ -1,0 +1,151 @@
+@page "/boards/{BoardId:guid}/standup"
+@implements IDisposable
+@inject BoardStore Store
+@inject TimeProvider Time
+
+<PageTitle>Standup · @(Store.Board?.Name ?? "Board") · KanbanHub</PageTitle>
+
+@if (Store.LoadProblem is { } problem)
+{
+    <h1>This board can't be shown</h1>
+    <p class="kh-error" role="alert">@problem.Detail</p>
+    <p><a href="">Back to your boards</a></p>
+}
+else if (Store.Board is not { } board || board.Id != BoardId)
+{
+    <p class="kh-loading" role="status">Loading the board…</p>
+}
+else
+{
+    DateTime now = Time.GetUtcNow().UtcDateTime;
+    IReadOnlyList<StandupStop> stops = StandupWalk.Plan(board, now);
+    int at = Math.Min(index, stops.Count);
+
+    <section class="kh-standup" style="@PaletteCss.Of(board)" aria-labelledby="standup-title">
+        <LiveBoard BoardId="BoardId" />
+
+        <header class="kh-page-head">
+            <h1 id="standup-title">Standup · @board.Name</h1>
+            <div class="kh-page-head__actions">
+                <span class="kh-standup__clock @(clock.IsOver ? "kh-standup__clock--over" : "")" role="timer"
+                      aria-label="@(clock.IsOver ? "Time over by" : "Time left")">@clock.Display</span>
+                <button type="button" class="kh-button" @onclick="ToggleClock">@(clock.IsRunning ? "Reset timer" : "Start timer")</button>
+                <a class="kh-button" href="boards/@board.Id">Back to the board</a>
+            </div>
+        </header>
+
+        <InsightsPanel BoardId="BoardId" Only="AiFeature.StandupBrief" OnOpen="Open" />
+
+        <ol class="kh-standup__path" aria-label="The walk, from the last step to the first">
+            @for (int position = 0; position < stops.Count; position++)
+            {
+                int stopAt = position;
+                StandupStop stop = stops[position];
+                <li>
+                    <button type="button" class="kh-chip" aria-pressed="@(at == stopAt ? "true" : "false")" @onclick="() => index = stopAt">
+                        @stop.Step.Name@(stop.BlockedCount > 0 ? $" · {stop.BlockedCount} blocked" : "")
+                    </button>
+                </li>
+            }
+            <li>
+                <button type="button" class="kh-chip" aria-pressed="@(at == stops.Count ? "true" : "false")" @onclick="() => index = stops.Count">
+                    Anyone blocked?
+                </button>
+            </li>
+        </ol>
+
+        @if (at < stops.Count)
+        {
+            StandupStop stop = stops[at];
+            <h2>@stop.Step.Name</h2>
+            <p>@Describe(stop)</p>
+            <StandupCards Cards="stop.Cards" Empty="No work in this step." OnOpen="Open" />
+        }
+        else
+        {
+            <h2>Is anyone blocked?</h2>
+            <p>The one question every standup asks. Flag the card, so it leaves the WIP count and gets help.</p>
+            <StandupCards Cards="StandupWalk.Blocked(board, now)" Empty="No card is flagged as blocked." OnOpen="Open" />
+        }
+
+        <div class="kh-row">
+            <button type="button" class="kh-button" disabled="@(at == 0)" @onclick="() => index = at - 1">Previous</button>
+            @if (at < stops.Count)
+            {
+                <button type="button" class="kh-button kh-button--primary" @onclick="() => index = at + 1">@NextLabel(stops, at)</button>
+            }
+            else
+            {
+                <a class="kh-button kh-button--primary" href="boards/@board.Id">Finish</a>
+            }
+        </div>
+    </section>
+
+    @if (openCardId is { } cardId)
+    {
+        <CardPanel CardId="cardId" OnClose="() => openCardId = null" OnOpenCard="other => openCardId = other" @key="cardId" />
+    }
+}
+
+@code {
+    [Parameter] public Guid BoardId { get; set; }
+
+    private readonly CancellationTokenSource leaving = new();
+    private StandupClock clock = default!;
+    private Guid? openCardId;
+    private int index;
+
+    protected override void OnInitialized()
+    {
+        clock = new StandupClock(Time);
+        Store.Changed += Refresh;
+        _ = TickAsync();
+    }
+
+    protected override Task OnParametersSetAsync() =>
+        Store.Board?.Id == BoardId ? Task.CompletedTask : Store.LoadAsync(BoardId, CancellationToken.None);
+
+    public void Dispose()
+    {
+        Store.Changed -= Refresh;
+        leaving.Cancel();
+        leaving.Dispose();
+    }
+
+    private void Open(CardDto card) => openCardId = card.Id;
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    private void ToggleClock()
+    {
+        if (clock.IsRunning) clock.Reset();
+        else clock.Start();
+    }
+
+    /// <summary>Redraws once a second while the clock runs.</summary>
+    private async Task TickAsync()
+    {
+        using var second = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await second.WaitForNextTickAsync(leaving.Token))
+            {
+                if (clock.IsRunning) StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The page was left.
+        }
+    }
+
+    private static string Describe(StandupStop stop) => stop switch
+    {
+        { Step.WipLimit: null } => $"WIP {stop.Step.WipCount}, no limit.",
+        { Room: > 0 } => $"WIP {stop.Step.WipCount} of {stop.Step.WipLimit}. Room for {stop.Room}: pull work that is done in the step before.",
+        _ => $"WIP {stop.Step.WipCount} of {stop.Step.WipLimit}. Full: finish something here before pulling more."
+    };
+
+    private static string NextLabel(IReadOnlyList<StandupStop> stops, int at) =>
+        at + 1 < stops.Count ? $"Next: {stops[at + 1].Step.Name}" : "Next: anyone blocked?";
+}

@@ -1,0 +1,27 @@
+<Project Sdk="Azure.Functions.Sdk">
+
+  <!-- Function app for everything slower than a request: topic and queue consumers, the outbox sweeper, the GitHub backfill. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Azure.Functions.Worker" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.ServiceBus" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Timer" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KanbanHub.Agents\KanbanHub.Agents.csproj" />
+    <ProjectReference Include="..\KanbanHub.AI\KanbanHub.AI.csproj" />
+    <ProjectReference Include="..\KanbanHub.Data\KanbanHub.Data.csproj" />
+    <ProjectReference Include="..\KanbanHub.Domain\KanbanHub.Domain.csproj" />
+    <ProjectReference Include="..\KanbanHub.GitHub\KanbanHub.GitHub.csproj" />
+    <ProjectReference Include="..\KanbanHub.Messaging\KanbanHub.Messaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="host.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KanbanHub</title>
+    <base href="/" />
+    <link rel="preload" id="webassembly" />
+    <link rel="stylesheet" href="css/app.css" />
+    <script type="importmap"></script>
+</head>
+
+<body>
+    <!-- A static shell: the header paints at once while the runtime downloads (specification section 16.5). -->
+    <div id="app">
+        <header class="kh-top">
+            <span class="kh-top__brand">KanbanHub</span>
+        </header>
+        <main class="kh-main">
+            <p class="kh-loading" role="status">Loading your boards…</p>
+        </main>
+    </div>
+
+    <div id="blazor-error-ui" role="alert">
+        Something went wrong.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">Dismiss</span>
+    </div>
+    <script>
+        // Keyboard moves (FR-M07): on a card, Space and the arrow keys carry the card instead of scrolling the page.
+        document.addEventListener('keydown', event => {
+            if (event.target.closest?.('.kh-card') && [' ', 'ArrowLeft', 'ArrowRight'].includes(event.key)) event.preventDefault();
+        });
+        // After a card moved, its element is new: give it the focus back.
+        window.kanbanHub = { focus: id => document.getElementById(id)?.focus() };
+    </script>
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+</body>
+
+</html>

@@ -1,0 +1,21 @@
+@* The cards of one standup stop, or a line saying there are none. *@
+
+@if (Cards.Count == 0)
+{
+    <p class="kh-empty">@Empty</p>
+}
+else
+{
+    <ul class="kh-standup__cards">
+        @foreach (StandupCard item in Cards)
+        {
+            <li @key="item.Card.Id"><StandupCardRow Item="item" OnOpen="OnOpen" /></li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<StandupCard> Cards { get; set; } = [];
+    [Parameter, EditorRequired] public string Empty { get; set; } = "";
+    [Parameter] public EventCallback<CardDto> OnOpen { get; set; }
+}

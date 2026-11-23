@@ -1,0 +1,103 @@
+@*
+    Which repositories feed this board (specification section 9.5). A mirrored repository turns every open issue
+    into a backlog card; with "on demand" people link issues to cards one by one from the card panel.
+*@
+@inject KanbanApi Api
+@inject Notices Notices
+
+<section aria-labelledby="github-links-title">
+    <h2 id="github-links-title">Linked repositories</h2>
+    @if (links.Count == 0)
+    {
+        <p class="kh-empty">No repository is linked to this board yet.</p>
+    }
+    else
+    {
+        <table class="kh-table">
+            <thead>
+                <tr><th scope="col">Repository</th><th scope="col">Sync</th><th scope="col">Label</th><th scope="col"></th></tr>
+            </thead>
+            <tbody>
+                @foreach (RepoLinkDto link in links)
+                {
+                    <tr @key="link.RepositoryId">
+                        <th scope="row"><a href="https://github.com/@link.FullName" target="_blank" rel="noopener">@link.FullName</a></th>
+                        <td>@(link.Mode is SyncMode.Mirror ? "Mirror every open issue" : "Link issues on demand")</td>
+                        <td>@(link.LabelFilter ?? "Any")</td>
+                        <td>
+                            <button type="button" class="kh-button kh-button--danger" aria-label="@($"Unlink {link.FullName}")"
+                                    @onclick="() => UnlinkAsync(link)">Unlink</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+<form class="kh-form-card" @onsubmit="LinkAsync" aria-label="Link a repository" style="margin-top: 16px">
+    <div class="kh-field">
+        <label for="repo-name">Repository <span class="kh-hint">as owner/name; the KanbanHub GitHub App must be installed on it</span></label>
+        <input id="repo-name" @bind="repository" required pattern="[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+" placeholder="contoso/checkout" />
+    </div>
+    <div class="kh-field">
+        <label for="repo-mode">Sync</label>
+        <select id="repo-mode" @bind="mode">
+            <option value="@SyncMode.OnDemand">Link issues on demand</option>
+            <option value="@SyncMode.Mirror">Mirror every open issue into the backlog</option>
+        </select>
+    </div>
+    @if (mode is SyncMode.Mirror)
+    {
+        <div class="kh-field">
+            <label for="repo-label">Only issues with this label <span class="kh-hint">optional</span></label>
+            <input id="repo-label" @bind="labelFilter" maxlength="100" />
+        </div>
+    }
+    <button type="submit" class="kh-button kh-button--primary">Link repository</button>
+    <p class="kh-hint" style="margin-top: 8px">
+        Linking lets changes made in GitHub edit, move and block this board's cards, within its WIP limits and done rules.
+        The GitHub App appears under Members with the Member role; change it there.
+    </p>
+</form>
+
+@code {
+    [Parameter, EditorRequired] public BoardSnapshotDto Board { get; set; } = default!;
+
+    private IReadOnlyList<RepoLinkDto> links = [];
+    private string repository = "";
+    private SyncMode mode = SyncMode.OnDemand;
+    private string? labelFilter;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() =>
+        links = (await Api.ListRepositoryLinksAsync(Board.Id, CancellationToken.None)).Value as IReadOnlyList<RepoLinkDto> ?? [];
+
+    private async Task LinkAsync()
+    {
+        var request = new LinkRepositoryRequest(repository.Trim(), mode, mode is SyncMode.Mirror ? labelFilter : null);
+        switch ((await Api.LinkRepositoryAsync(Board.Id, request, CancellationToken.None)).Value)
+        {
+            case RepoLinkDto linked:
+                Notices.Show(NoticeKind.Success, $"{linked.FullName} is linked.");
+                (repository, labelFilter) = ("", null);
+                break;
+            case ApiProblem problem:
+                Notices.ShowProblem(problem);
+                break;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task UnlinkAsync(RepoLinkDto link)
+    {
+        if ((await Api.UnlinkRepositoryAsync(Board.Id, link.RepositoryId, CancellationToken.None)).Value is ApiProblem problem)
+            Notices.ShowProblem(problem);
+        else
+            Notices.Show(NoticeKind.Success, $"{link.FullName} is no longer linked. Its cards and issues stay as they are.");
+
+        await LoadAsync();
+    }
+}

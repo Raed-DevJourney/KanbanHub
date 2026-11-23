@@ -1,0 +1,145 @@
+# Deploys one environment from the "drop" artifact of the run that calls it (specification section 18.1):
+# infrastructure, database, both function apps and the web app, then a smoke test.
+#
+# It signs in to Azure with OpenID Connect and stores no secret. What it needs comes from the variables of the
+# GitHub environment (README, "Deploying to Azure"); none of them is secret.
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: dev, test or prod
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency: deploy-${{ inputs.environment }}   # one deployment of an environment at a time
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      # Read by infra/main.<environment>.bicepparam.
+      KH_API_CLIENT_ID: ${{ vars.KH_API_CLIENT_ID }}
+      KH_SQL_ADMIN_OBJECT_ID: ${{ vars.KH_SQL_ADMIN_OBJECT_ID }}
+      KH_SQL_ADMIN_NAME: ${{ vars.KH_SQL_ADMIN_NAME }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: drop
+          path: out
+
+      - uses: Azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Show what the infrastructure deployment will change
+        run: az deployment group what-if --resource-group "$RESOURCE_GROUP" --parameters "infra/main.$ENVIRONMENT.bicepparam"
+
+      - name: Deploy the infrastructure
+        id: infra
+        run: |
+          az deployment group create --resource-group "$RESOURCE_GROUP" --name "kanbanhub-$GITHUB_RUN_NUMBER" \
+            --parameters "infra/main.$ENVIRONMENT.bicepparam" --query properties.outputs --output json > outputs.json
+          jq --raw-output 'to_entries[] | "\(.key)=\(.value.value)"' outputs.json >> "$GITHUB_OUTPUT"
+
+      # The identity this workflow runs as is in the SQL server's admin group, so its own token opens the
+      # database. The two variables let the function apps' identity in (Seed.PostDeployment.sql).
+      # Data loss blocks the publish, which is sqlpackage's default.
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Publish the database
+        env:
+          SQL_SERVER: ${{ steps.infra.outputs.sqlServerFqdn }}
+          SQL_DATABASE: ${{ steps.infra.outputs.sqlDatabaseName }}
+          APP_IDENTITY_NAME: ${{ steps.infra.outputs.appIdentityName }}
+          APP_IDENTITY_CLIENT_ID: ${{ steps.infra.outputs.appIdentityClientId }}
+          DOTNET_ROLL_FORWARD: Major   # lets the tool run on the .NET version this repository uses
+        run: |
+          dotnet tool install --global microsoft.sqlpackage
+          token=$(az account get-access-token --resource https://database.windows.net/ --query accessToken --output tsv)
+          echo "::add-mask::$token"
+          sqlpackage /Action:Publish /SourceFile:out/KanbanHub.Database.dacpac \
+            /TargetServerName:"$SQL_SERVER" /TargetDatabaseName:"$SQL_DATABASE" /AccessToken:"$token" \
+            /v:AppIdentityName="$APP_IDENTITY_NAME" /v:AppIdentityClientId="$APP_IDENTITY_CLIENT_ID"
+
+      - name: Deploy the API
+        uses: Azure/functions-action@c5060b3b8bb1ebbcb531abd00c822ecbaa8ea656 # v1.5.7
+        with:
+          app-name: ${{ steps.infra.outputs.apiAppName }}
+          package: out/api.zip
+
+      - name: Deploy the workers
+        uses: Azure/functions-action@c5060b3b8bb1ebbcb531abd00c822ecbaa8ea656 # v1.5.7
+        with:
+          app-name: ${{ steps.infra.outputs.workersAppName }}
+          package: out/workers.zip
+
+      # The web app is built once and told at deployment where its API and its sign-in are. The compressed
+      # copies of the file made at build time would be stale, so they go.
+      - name: Point the web app at this environment
+        env:
+          API_URL: ${{ steps.infra.outputs.apiUrl }}
+          WEB_CLIENT_ID: ${{ vars.KH_WEB_CLIENT_ID }}
+        run: |
+          jq --null-input \
+            --arg api "$API_URL/api/v1/" \
+            --arg scope "api://$KH_API_CLIENT_ID/access_as_user" \
+            --arg authority "https://login.microsoftonline.com/$TENANT_ID" \
+            --arg client "$WEB_CLIENT_ID" \
+            '{
+              Api: { BaseUrl: $api, Scope: $scope },
+              Auth: { Mode: "Entra" },
+              AzureAd: { Authority: $authority, ClientId: $client, ValidateAuthority: true }
+            }' > out/web/wwwroot/appsettings.json
+          rm --force out/web/wwwroot/appsettings.json.br out/web/wwwroot/appsettings.json.gz
+
+      # The deployment token is read from Azure for this run only, so it is not kept as a GitHub secret.
+      - name: Read the web app's deployment token
+        id: web
+        env:
+          STATIC_WEB_APP: ${{ steps.infra.outputs.staticWebAppName }}
+        run: |
+          token=$(az staticwebapp secrets list --name "$STATIC_WEB_APP" --resource-group "$RESOURCE_GROUP" \
+            --query properties.apiKey --output tsv)
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy the web app
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.web.outputs.token }}
+          action: upload
+          app_location: out/web/wwwroot
+          skip_app_build: true
+
+      # Three cheap checks: the API answers, it refuses a caller without a token, and the web app is served.
+      # None of them touches the database, so a paused database stays paused.
+      - name: Smoke test
+        env:
+          API_URL: ${{ steps.infra.outputs.apiUrl }}
+          WEB_URL: ${{ steps.infra.outputs.webUrl }}
+        run: |
+          curl --fail --silent --show-error --retry 10 --retry-delay 15 --retry-all-errors "$API_URL/api/health"
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' "$API_URL/api/v1/me")
+          if [ "$status" != "401" ]; then
+            echo "::error::Expected 401 from /api/v1/me without a token, got $status"
+            exit 1
+          fi
+          curl --fail --silent --show-error --retry 5 --retry-delay 10 --retry-all-errors "$WEB_URL/" | grep --quiet KanbanHub

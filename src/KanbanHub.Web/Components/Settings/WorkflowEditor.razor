@@ -1,0 +1,86 @@
+@*
+    The board's steps, in order. The last one is the final step. Removing a step retires it, and the
+    server refuses while it still holds cards (FR-B03, FR-B10).
+*@
+@inject KanbanApi Api
+@inject SettingsSaver Saver
+
+<form @onsubmit="SaveAsync" aria-label="Workflow">
+    <p class="kh-hint">@WorkflowRules.MinSteps to @WorkflowRules.MaxSteps steps. Keep them few: merge steps one person usually does.</p>
+    <table class="kh-table">
+        <thead>
+            <tr><th scope="col">Step</th><th scope="col">Color</th><th scope="col">Blocked column</th><th scope="col">Breakdown step</th><th scope="col">Open to agents</th><th scope="col">Order</th></tr>
+        </thead>
+        <tbody>
+            @foreach ((EditableStep step, int index) in steps.Select((step, index) => (step, index)))
+            {
+                <tr @key="step">
+                    <td><input @bind="step.Name" required maxlength="100" aria-label="@($"Name of step {index + 1}")" /></td>
+                    <td><input type="color" @bind="step.Color" aria-label="@($"Color of {step.Name}")" /></td>
+                    <td><input type="checkbox" @bind="step.HasTrack" aria-label="@($"{step.Name} has a Blocked column")" /></td>
+                    <td><input type="checkbox" @bind="step.CountsParentsOnly" aria-label="@($"{step.Name} counts parents only")" /></td>
+                    <td><input type="checkbox" @bind="step.IsAgentEligible" aria-label="@($"Cards in {step.Name} can be sent to coding agents")" /></td>
+                    <td>
+                        <button type="button" class="kh-icon-button" aria-label="@($"Move {step.Name} earlier")" disabled="@(index == 0)" @onclick="() => Swap(index, index - 1)">↑</button>
+                        <button type="button" class="kh-icon-button" aria-label="@($"Move {step.Name} later")" disabled="@(index == steps.Count - 1)" @onclick="() => Swap(index, index + 1)">↓</button>
+                        <button type="button" class="kh-icon-button" aria-label="@($"Remove {step.Name}")" @onclick="() => steps.Remove(step)">Remove</button>
+                        @if (index == steps.Count - 1)
+                        {
+                            <span class="kh-chip">Final step</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <div class="kh-row" style="margin-top: 12px">
+        <button type="button" class="kh-button" disabled="@(steps.Count >= WorkflowRules.MaxSteps)" @onclick="Add">Add step</button>
+        <button type="submit" class="kh-button kh-button--primary">Save workflow</button>
+    </div>
+</form>
+
+@code {
+    /// <summary>A row being edited; <see cref="Id"/> is null for a step that doesn't exist yet.</summary>
+    private sealed class EditableStep
+    {
+        public Guid? Id { get; init; }
+        public string Name { get; set; } = "";
+        public string Color { get; set; } = "#2563EB";
+        public bool HasTrack { get; set; } = true;
+        public bool CountsParentsOnly { get; set; }
+        public bool IsAgentEligible { get; set; }
+    }
+
+    [Parameter, EditorRequired] public BoardSnapshotDto Board { get; set; } = default!;
+
+    private List<EditableStep> steps = [];
+    private int loadedVersion = -1;
+
+    protected override void OnParametersSet()
+    {
+        if (loadedVersion == Board.WorkflowVersion) return;   // keep unsaved edits until the workflow itself changes
+
+        loadedVersion = Board.WorkflowVersion;
+        steps = [.. Board.Steps.Select(step => new EditableStep
+        {
+            Id = step.Id, Name = step.Name, Color = step.Color, HasTrack = step.HasTrack,
+            CountsParentsOnly = step.CountsParentsOnly, IsAgentEligible = step.IsAgentEligible
+        })];
+    }
+
+    private void Add() => steps.Add(new EditableStep { Name = $"Step {steps.Count + 1}" });
+
+    private void Swap(int from, int to) => (steps[from], steps[to]) = (steps[to], steps[from]);
+
+    private Task SaveAsync()
+    {
+        StepDraft[] drafts =
+        [
+            .. steps.Select(step => new StepDraft(step.Id, step.Name.Trim(), step.Color.ToUpperInvariant())
+            {
+                HasTrack = step.HasTrack, CountsParentsOnly = step.CountsParentsOnly, IsAgentEligible = step.IsAgentEligible
+            })
+        ];
+        return Saver.CompleteAsync(Api.SetWorkflowAsync(Board.Id, drafts, CancellationToken.None), "Workflow saved.");
+    }
+}

@@ -1,0 +1,105 @@
+@*
+    WIP limits per step, with the book's calculator. The calculator only suggests: nothing changes
+    until the limits are saved, with a reason that goes into the audit trail (rules R6 to R8).
+*@
+@inject KanbanApi Api
+@inject SettingsSaver Saver
+@inject Notices Notices
+
+<form @onsubmit="SaveAsync" aria-label="WIP limits">
+    <table class="kh-table">
+        <thead>
+            <tr>
+                <th scope="col">Step</th><th scope="col">Now</th><th scope="col">Limit (1 to 99, empty for none)</th><th scope="col">When full</th>
+                <th scope="col">Items per person</th><th scope="col">People</th><th scope="col">Suggested</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (EditableLimit row in rows)
+            {
+                <tr @key="row.Step.Id">
+                    <th scope="row">@row.Step.Name</th>
+                    <td>@row.Step.WipCount</td>
+                    <td><input type="number" min="@WipLimit.Minimum" max="@WipLimit.Maximum" @bind="row.MaxItems" aria-label="@($"WIP limit of {row.Step.Name}")" /></td>
+                    <td>
+                        <select @bind="row.Policy" aria-label="@($"Policy of {row.Step.Name}")">
+                            <option value="@WipPolicy.Strict">Reject the move</option>
+                            <option value="@WipPolicy.AllowWithReason">Allow with a reason</option>
+                            <option value="@WipPolicy.Warn">Warn and record</option>
+                        </select>
+                    </td>
+                    <td><input type="number" min="0.1" step="0.1" @bind="row.ItemsPerPerson" aria-label="@($"Items one person finishes in {row.Step.Name}")" /></td>
+                    <td><input type="number" min="1" @bind="row.People" aria-label="@($"People working in {row.Step.Name}")" /></td>
+                    <td>@(row.Suggestion is { } suggestion ? $"{suggestion.SuggestedLimit}{(suggestion.IsConstraint ? " (slowest step)" : "")}" : "")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <div class="kh-field" style="margin-top: 12px; max-width: 560px">
+        <label for="wip-reason">Why are the limits changing?</label>
+        <input id="wip-reason" @bind="reason" maxlength="300" />
+    </div>
+    <div class="kh-row">
+        <button type="button" class="kh-button" @onclick="SuggestAsync">Calculate starting limits</button>
+        @if (rows.Any(row => row.Suggestion is not null))
+        {
+            <button type="button" class="kh-button" @onclick="UseSuggestions">Use the suggestions</button>
+        }
+        <button type="submit" class="kh-button kh-button--primary">Save limits</button>
+    </div>
+    <p class="kh-hint">The calculator takes the slowest step's pace, staffs every step to match it and adds a 50% buffer.</p>
+</form>
+
+@code {
+    private sealed class EditableLimit(StepDto step)
+    {
+        public StepDto Step { get; } = step;
+        public int? MaxItems { get; set; } = step.WipLimit;
+        public WipPolicy Policy { get; set; } = step.Policy ?? WipPolicy.Strict;
+        public decimal ItemsPerPerson { get; set; } = 1;
+        public int People { get; set; } = 1;
+        public WipSuggestion? Suggestion { get; set; }
+    }
+
+    [Parameter, EditorRequired] public BoardSnapshotDto Board { get; set; } = default!;
+
+    private List<EditableLimit> rows = [];
+    private string reason = "";
+    private string loadedKey = "";
+
+    protected override void OnParametersSet()
+    {
+        string key = string.Join('|', Board.Steps.Select(step => $"{step.Id}:{step.WipLimit}:{step.Policy}"));
+        if (key == loadedKey) return;   // keep unsaved edits until the limits themselves change
+
+        loadedKey = key;
+        rows = [.. Board.Steps.Select(step => new EditableLimit(step))];
+    }
+
+    private async Task SuggestAsync()
+    {
+        StepCapacityDraft[] capacities = [.. rows.Select(row => new StepCapacityDraft(row.Step.Name, row.ItemsPerPerson, row.People))];
+        switch ((await Api.SuggestWipLimitsAsync(Board.Id, capacities, CancellationToken.None)).Value)
+        {
+            case IReadOnlyList<WipSuggestion> suggestions:
+                foreach ((EditableLimit row, WipSuggestion suggestion) in rows.Zip(suggestions)) row.Suggestion = suggestion;
+                break;
+            case ApiProblem problem:
+                Notices.ShowProblem(problem);
+                break;
+        }
+    }
+
+    private void UseSuggestions()
+    {
+        foreach (EditableLimit row in rows) row.MaxItems = row.Suggestion?.SuggestedLimit ?? row.MaxItems;
+    }
+
+    private Task SaveAsync()
+    {
+        StepLimit[] limits = [.. rows.Where(row => row.MaxItems is not null).Select(row => new StepLimit(row.Step.Id, row.MaxItems!.Value, row.Policy))];
+        var request = new SetWipLimitsRequest(limits, string.IsNullOrWhiteSpace(reason) ? null : reason.Trim());
+        return Saver.CompleteAsync(Api.SetWipLimitsAsync(Board.Id, request, CancellationToken.None), "WIP limits saved.");
+    }
+}

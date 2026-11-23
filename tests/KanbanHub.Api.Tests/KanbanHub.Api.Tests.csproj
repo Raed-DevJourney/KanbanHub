@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KanbanHub.Api\KanbanHub.Api.csproj" />
+    <ProjectReference Include="..\KanbanHub.TestSupport\KanbanHub.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>

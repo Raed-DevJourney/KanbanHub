@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.Build.Sql">
+  <!-- SDK-style SQL project: every .sql file under this folder is part of the model. Builds KanbanHub.Database.dacpac. -->
+  <PropertyGroup>
+    <Name>KanbanHub.Database</Name>
+    <DSP>Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider</DSP>
+    <ModelCollation>1033, CI</ModelCollation>
+    <TreatTSqlWarningsAsErrors>true</TreatTSqlWarningsAsErrors>
+    <ProjectGuid>{00000000-0000-0000-0000-000000000000}</ProjectGuid>
+  </PropertyGroup>
+  <!-- Seed data runs after every publish; it is not part of the schema model. -->
+  <ItemGroup>
+    <Build Remove="Scripts\Seed.PostDeployment.sql" />
+    <PostDeploy Include="Scripts\Seed.PostDeployment.sql" />
+  </ItemGroup>
+  <!-- Who the post-deployment script lets into the database: the function apps' managed identity. Empty, the
+       default, grants nothing; that is what a local database and the tests get. -->
+  <ItemGroup>
+    <SqlCmdVariable Include="AppIdentityName">
+      <DefaultValue>
+      </DefaultValue>
+    </SqlCmdVariable>
+    <SqlCmdVariable Include="AppIdentityClientId">
+      <DefaultValue>
+      </DefaultValue>
+    </SqlCmdVariable>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared by the test projects that need a real database: one freshly deployed schema per test run. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SqlServer.DacFx" />
+    <PackageReference Include="Testcontainers.MsSql" />
+    <PackageReference Include="xunit.v3.extensibility.core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KanbanHub.Data\KanbanHub.Data.csproj" />
+  </ItemGroup>
+
+  <!-- The tests deploy the real schema: build the dacpac first, then copy it next to the test assembly. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KanbanHub.Database\KanbanHub.Database.sqlproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" Private="false" />
+    <None Include="..\..\src\KanbanHub.Database\bin\$(Configuration)\KanbanHub.Database.dacpac"
+          Link="KanbanHub.Database.dacpac" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

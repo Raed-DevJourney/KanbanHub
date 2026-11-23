@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Pure C#: entities, transitions, WIP math, forecasts, unions. No I/O and no package references. -->
+
+</Project>

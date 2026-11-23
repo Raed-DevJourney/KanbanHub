@@ -1,0 +1,66 @@
+@*
+    The board's AI policy (specification section 11.2): its opt-in, its monthly token budget, and what it has used.
+    AI stays off until an owner switches it on here.
+*@
+@using System.Text.Json.Nodes
+@inject KanbanApi Api
+@inject SettingsSaver Saver
+
+<form class="kh-form-card" @onsubmit="SaveAsync" aria-label="AI settings">
+    <div class="kh-field">
+        <label><input type="checkbox" @bind="enabled" /> Use AI on this board</label>
+    </div>
+    <p class="kh-hint">
+        AI reads this board's cards and flow to propose task breakdowns, brief the standup, point at the constraint and
+        advise on WIP limits. It suggests and people decide: it never moves a card, changes a limit or closes an issue.
+    </p>
+    <div class="kh-field">
+        <label for="settings-ai-budget">Monthly token budget <span class="kh-hint">new requests stop for the month once it is used up</span></label>
+        <input id="settings-ai-budget" type="number" min="0" max="@BoardPreferences.MaxAiMonthlyTokenBudget" step="1000" @bind="budget" required />
+    </div>
+    @if (status is { } current)
+    {
+        <p role="status">
+            Used this month: @current.TokensUsedThisMonth.ToString("N0") of @current.MonthlyTokenBudget.ToString("N0") tokens.
+            @if (current.IsOverBudget && current.IsEnabled)
+            {
+                <strong>The budget is used up: AI is paused until next month or a higher budget.</strong>
+            }
+        </p>
+        @if (!current.IsConfigured)
+        {
+            <p class="kh-error">This environment has no AI model set up, so switching AI on here has no effect yet.</p>
+        }
+    }
+    <button type="submit" class="kh-button kh-button--primary">Save</button>
+</form>
+
+@code {
+    [Parameter, EditorRequired] public BoardSnapshotDto Board { get; set; } = default!;
+
+    private AiStatusDto? status;
+    private bool enabled;
+    private int budget;
+    private Guid loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedFor == Board.Id) return;   // keep unsaved edits while the board on screen stays the same
+
+        loadedFor = Board.Id;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        status = (await Api.GetAiStatusAsync(Board.Id, CancellationToken.None)).Value as AiStatusDto;
+        if (status is not null) (enabled, budget) = (status.IsEnabled, status.MonthlyTokenBudget);
+    }
+
+    private async Task SaveAsync()
+    {
+        var patch = new JsonObject { ["aiEnabled"] = enabled, ["aiMonthlyTokenBudget"] = budget };
+        if (await Saver.CompleteAsync(Api.EditBoardAsync(Board.Id, patch, CancellationToken.None), "AI settings saved."))
+            await LoadAsync();
+    }
+}

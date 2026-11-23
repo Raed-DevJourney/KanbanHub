@@ -1,0 +1,159 @@
+@* What can be done to a card besides moving it: block and unblock, break down, cancel. Each needs its own permission. *@
+@inject KanbanApi Api
+@inject BoardStore Store
+@inject Notices Notices
+
+<section aria-labelledby="actions-title">
+    <h3 id="actions-title">Actions</h3>
+
+    @if (Card.Card.IsBlocked)
+    {
+        <p><strong>Blocked:</strong> @Card.Card.BlockedReason (@Card.BlockerCategory)</p>
+    }
+
+    <div class="kh-row">
+        @if (Store.Can(Permission.CardBlock))
+        {
+            @if (Card.Card.IsBlocked)
+            {
+                <button type="button" class="kh-button" @onclick="UnblockAsync">Unblock</button>
+            }
+            else
+            {
+                <button type="button" class="kh-button" @onclick="() => asking = Question.Block">Block…</button>
+            }
+        }
+        @if (Store.Can(Permission.CardEdit) && InBreakdownStep)
+        {
+            <button type="button" class="kh-button" @onclick="() => asking = Question.BreakDown">Break down…</button>
+        }
+        @if (Store.Can(Permission.CardCancel) && Card.Card.Location is not Location.Canceled)
+        {
+            <button type="button" class="kh-button kh-button--danger" @onclick="() => asking = Question.Cancel">Cancel card…</button>
+        }
+    </div>
+
+    @if (asking is Question.Block)
+    {
+        <form class="kh-form-card" @onsubmit="BlockAsync" aria-label="Block card">
+            <div class="kh-field">
+                <label for="block-reason">What is it waiting for?</label>
+                <input id="block-reason" @bind="reason" required maxlength="500" />
+            </div>
+            <div class="kh-field">
+                <label for="block-category">Category</label>
+                <select id="block-category" @bind="category">
+                    @foreach (BlockerCategory option in Enum.GetValues<BlockerCategory>())
+                    {
+                        <option value="@option">@option</option>
+                    }
+                </select>
+            </div>
+            <button type="submit" class="kh-button kh-button--primary">Block</button>
+            <button type="button" class="kh-button kh-button--quiet" @onclick="() => asking = Question.None">Never mind</button>
+        </form>
+    }
+    else if (asking is Question.BreakDown)
+    {
+        <form class="kh-form-card" @onsubmit="BreakDownAsync" aria-label="Break down card">
+            <div class="kh-field">
+                <label for="breakdown-tasks">Tasks, one per line <span class="kh-hint">each under a week</span></label>
+                <textarea id="breakdown-tasks" @bind="taskLines" required></textarea>
+            </div>
+            @if (proposal is { } proposed)
+            {
+                <div class="kh-suggestion" role="status">
+                    <p class="kh-hint">Suggested by AI. Edit the list above; only what it holds becomes tasks.</p>
+                    <ul>
+                        @foreach (ProposedTask task in proposed.Tasks)
+                        {
+                            <li>@AiSuggestions.Describe(task)</li>
+                        }
+                    </ul>
+                </div>
+            }
+            <button type="submit" class="kh-button kh-button--primary">Create tasks</button>
+            @if (Store.CanUseAi)
+            {
+                <button type="button" class="kh-button" disabled="@suggesting" @onclick="SuggestTasksAsync">Suggest tasks</button>
+            }
+            <button type="button" class="kh-button kh-button--quiet" @onclick="() => asking = Question.None">Never mind</button>
+        </form>
+    }
+    else if (asking is Question.Cancel)
+    {
+        <ReasonDialog Title="@($"Cancel {Card.Card.Title}")" ConfirmLabel="Cancel card"
+                      Explanation="The card leaves the board and its WIP slot. It stays searchable, with this reason."
+                      OnConfirm="CancelAsync" OnCancel="() => asking = Question.None" />
+    }
+</section>
+
+@code {
+    private enum Question { None, Block, BreakDown, Cancel }
+
+    [Parameter, EditorRequired] public CardDetailDto Card { get; set; } = default!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public EventCallback OnGone { get; set; }
+
+    private Question asking;
+    private string reason = "";
+    private BlockerCategory category = BlockerCategory.Dependency;
+    private string taskLines = "";
+    private BreakdownProposal? proposal;
+    private bool suggesting;
+
+    private bool InBreakdownStep => Store.Steps.Any(step => step.Id == Card.Card.StepId && step.CountsParentsOnly);
+
+    private string StepName => Store.Steps.FirstOrDefault(step => step.Id == Card.Card.StepId)?.Name ?? "Its step";
+
+    private async Task BlockAsync() =>
+        await ShowAsync((await Api.BlockCardAsync(Card.Card.Id, new Blocker(reason, category), CancellationToken.None)).Value);
+
+    private async Task UnblockAsync() =>
+        await ShowAsync((await Api.UnblockCardAsync(Card.Card.Id, CancellationToken.None)).Value);
+
+    /// <summary>Says where the card went: it may have left the column the person was looking at.</summary>
+    private async Task ShowAsync(object? result)
+    {
+        string? where = (result as BlockResponse)?.Placement switch
+        {
+            BlockPlacement.MovedToBlocked => $"Moved to {StepName} Blocked. It no longer counts toward the WIP limit.",
+            BlockPlacement.ReturnedToActive => $"Back in {StepName} Active.",
+            BlockPlacement.WaitingForSlot => $"Unblocked, but {StepName} is full. The card waits in Blocked until a slot opens.",
+            _ => null
+        };
+        if (where is not null) Notices.Show(NoticeKind.Info, where);
+
+        await FinishAsync(result as ApiProblem);
+    }
+
+    private async Task BreakDownAsync()
+    {
+        string[] titles = taskLines.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        object? result = (await Api.BreakDownCardAsync(Card.Card.Id, titles, CancellationToken.None)).Value;
+        await FinishAsync(result as ApiProblem);
+    }
+
+    /// <summary>Fills the list with what the AI proposes. Nothing is created until the person says so.</summary>
+    private async Task SuggestTasksAsync()
+    {
+        suggesting = true;
+        proposal = await Api.ProposeBreakdownAsync(Card.Card.Id, CancellationToken.None).OrExplainAsync(Notices);
+        if (proposal is not null) taskLines = string.Join('\n', proposal.Tasks.Select(task => task.Title));
+        suggesting = false;
+    }
+
+    private async Task CancelAsync(string cancelReason)
+    {
+        object? result = (await Api.CancelCardAsync(Card.Card.Id, Card.Card.ETag, cancelReason, CancellationToken.None)).Value;
+        await FinishAsync(result as ApiProblem);
+        if (result is not ApiProblem) await OnGone.InvokeAsync();
+    }
+
+    private async Task FinishAsync(ApiProblem? problem)
+    {
+        if (problem is not null) Notices.ShowProblem(problem);
+        (asking, reason, taskLines, proposal) = (Question.None, "", "", null);
+        await OnChanged.InvokeAsync();
+    }
+}

@@ -1,0 +1,55 @@
+@* A workflow step: its WIP against its limit, its done rule, and its Active, Track and Done sub-columns. *@
+
+<section class="kh-step" aria-labelledby="@headingId" style="--kh-step-color: @Step.Color">
+    <header class="kh-step__header">
+        <h2 id="@headingId">@Step.Name</h2>
+        @if (Step.DoneRule.Count > 0)
+        {
+            <details class="kh-done-rule">
+                <summary class="kh-chip">Done rule</summary>
+                <ul>
+                    @foreach (DoneRuleItemDto item in Step.DoneRule)
+                    {
+                        <li>@item.Text @(item.IsRequired ? "" : "(optional)")</li>
+                    }
+                </ul>
+            </details>
+        }
+        <span class="kh-wip @WipStateClass" aria-label="@WipLabel">@WipText</span>
+    </header>
+
+    <div class="kh-step__body">
+        <CardDropZone Slot="new BoardSlot(Step, Location.Active)" OnOpen="OnOpen" />
+        @if (Step.HasTrack)
+        {
+            <CardDropZone Slot="new BoardSlot(Step, Location.Track)" OnOpen="OnOpen" />
+        }
+        <CardDropZone Slot="new BoardSlot(Step, Location.Done)" OnOpen="OnOpen" />
+    </div>
+</section>
+
+@code {
+    /// <summary>Cascaded by the board page, so this component re-renders whenever the board changes.</summary>
+    [CascadingParameter] public BoardStore Store { get; set; } = default!;
+
+    [Parameter, EditorRequired] public StepDto Step { get; set; } = default!;
+    [Parameter] public EventCallback<CardDto> OnOpen { get; set; }
+
+    private readonly string headingId = $"step-{Guid.NewGuid():N}";
+
+    private int Count => Store.WipCountOf(Step);
+
+    private string WipText => Step.WipLimit is { } limit ? $"{Count}/{limit}" : Count.ToString();
+
+    private string WipLabel => Step.WipLimit is { } limit
+        ? $"{Count} of {limit} cards in progress{(Count > limit ? ", over the limit" : Count == limit ? ", full" : "")}"
+        : $"{Count} cards in progress, no limit";
+
+    // Amber at the limit, red above it (section 5.2).
+    private string WipStateClass => Step.WipLimit switch
+    {
+        { } limit when Count > limit => "kh-wip--over",
+        { } limit when Count == limit => "kh-wip--full",
+        _ => ""
+    };
+}

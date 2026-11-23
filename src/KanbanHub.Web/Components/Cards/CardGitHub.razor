@@ -1,0 +1,88 @@
+@*
+    The card's GitHub issue: where it is, what the sync could not apply, and the ways to link, unlink and resync.
+    Shown only when the card is linked or its board has a repository to link to.
+*@
+@inject KanbanApi Api
+@inject BoardStore Store
+@inject Notices Notices
+
+@if (Card.Card.Issue is { } issue)
+{
+    <section aria-labelledby="github-title">
+        <h3 id="github-title">GitHub</h3>
+        <p><a href="@issue.Url" target="_blank" rel="noopener">@issue.Repository #@issue.Number</a></p>
+        @if (issue.ClosedInGitHub)
+        {
+            <p>Closed in GitHub. Finish or cancel the card here when that is right.</p>
+        }
+        @if (issue.SyncProblem is { } problem)
+        {
+            <p class="kh-error" role="status"><strong>Not applied:</strong> @problem</p>
+        }
+        <div class="kh-row">
+            @if (Store.Can(Permission.GitHubSyncTrigger))
+            {
+                <button type="button" class="kh-button" @onclick="SyncAsync">Sync now</button>
+            }
+            @if (Store.Can(Permission.CardEdit))
+            {
+                <button type="button" class="kh-button" @onclick="UnlinkAsync">Unlink</button>
+            }
+        </div>
+    </section>
+}
+else if (repositories.Count > 0 && Store.Can(Permission.CardEdit))
+{
+    <section aria-labelledby="github-title">
+        <h3 id="github-title">GitHub</h3>
+        <div class="kh-field">
+            <label for="github-repo">Repository</label>
+            <select id="github-repo" @bind="repositoryId">
+                @foreach (RepoLinkDto repository in repositories)
+                {
+                    <option value="@repository.RepositoryId">@repository.FullName</option>
+                }
+            </select>
+        </div>
+        <div class="kh-row">
+            <button type="button" class="kh-button" @onclick="() => LinkAsync(issueNumber: null)">Create an issue from this card</button>
+        </div>
+        <form class="kh-row" style="margin-top: 8px" @onsubmit="() => LinkAsync(existingNumber)">
+            <label for="github-number">or link issue #</label>
+            <input id="github-number" type="number" min="1" @bind="existingNumber" required style="width: 96px" />
+            <button type="submit" class="kh-button">Link</button>
+        </form>
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public CardDetailDto Card { get; set; } = default!;
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private IReadOnlyList<RepoLinkDto> repositories = [];
+    private long repositoryId;
+    private int? existingNumber;
+
+    protected override async Task OnInitializedAsync()
+    {
+        repositories = (await Api.ListRepositoryLinksAsync(Card.BoardId, CancellationToken.None)).Value as IReadOnlyList<RepoLinkDto> ?? [];
+        repositoryId = repositories.FirstOrDefault()?.RepositoryId ?? 0;
+    }
+
+    private Task LinkAsync(int? issueNumber) =>
+        FinishAsync(Api.LinkIssueAsync(Card.Card.Id, new LinkIssueRequest(repositoryId, issueNumber), CancellationToken.None), "Linked.");
+
+    private Task UnlinkAsync() =>
+        FinishAsync(Api.UnlinkIssueAsync(Card.Card.Id, CancellationToken.None), "Unlinked. The issue stays as it is.");
+
+    private Task SyncAsync() =>
+        FinishAsync(Api.SyncCardAsync(Card.Card.Id, CancellationToken.None), "Sent to GitHub again.");
+
+    private async Task FinishAsync(Task<ApiResult<Done>> call, string done)
+    {
+        if ((await call).Value is ApiProblem problem) Notices.ShowProblem(problem);
+        else Notices.Show(NoticeKind.Success, done);
+
+        await OnChanged.InvokeAsync();
+    }
+}

@@ -1,0 +1,76 @@
+@*
+    A step's done rule: the checklist a card must meet before it moves from Active to Done.
+    Saving creates a new version; cards already in the step keep the checklist they entered with.
+*@
+@inject KanbanApi Api
+@inject SettingsSaver Saver
+
+<form @onsubmit="SaveAsync" aria-label="Done rules">
+    <div class="kh-field kh-field--inline">
+        <label for="rule-step">Step</label>
+        <select id="rule-step" value="@stepId" @onchange="ChooseStep">
+            @foreach (StepDto step in Board.Steps)
+            {
+                <option value="@step.Id">@step.Name</option>
+            }
+        </select>
+    </div>
+
+    <ul class="kh-checklist" style="max-width: 640px">
+        @foreach ((EditableItem item, int index) in items.Select((item, index) => (item, index)))
+        {
+            <li class="kh-row" @key="item">
+                <input @bind="item.Text" required maxlength="300" style="flex: 1" aria-label="@($"Done-rule item {index + 1}")" />
+                <label><input type="checkbox" @bind="item.IsRequired" /> Required</label>
+                <button type="button" class="kh-icon-button" aria-label="@($"Remove item {index + 1}")" @onclick="() => items.Remove(item)">Remove</button>
+            </li>
+        }
+    </ul>
+    @if (items.Count == 0)
+    {
+        <p class="kh-hint">This step has no done rule: cards finish it freely.</p>
+    }
+    <div class="kh-row" style="margin-top: 12px">
+        <button type="button" class="kh-button" @onclick="() => items.Add(new EditableItem())">Add item</button>
+        <button type="submit" class="kh-button kh-button--primary">Save done rule</button>
+    </div>
+</form>
+
+@code {
+    private sealed class EditableItem
+    {
+        public string Text { get; set; } = "";
+        public bool IsRequired { get; set; } = true;
+    }
+
+    [Parameter, EditorRequired] public BoardSnapshotDto Board { get; set; } = default!;
+
+    private Guid stepId;
+    private List<EditableItem> items = [];
+    private string loadedKey = "";
+
+    private StepDto Step => Board.Steps.FirstOrDefault(step => step.Id == stepId) ?? Board.Steps[0];
+
+    protected override void OnParametersSet()
+    {
+        string key = $"{Step.Id}:{string.Join('|', Step.DoneRule.Select(item => item.Text + item.IsRequired))}";
+        if (key == loadedKey) return;   // keep unsaved edits until the rule itself changes
+
+        loadedKey = key;
+        stepId = Step.Id;
+        items = [.. Step.DoneRule.Select(item => new EditableItem { Text = item.Text, IsRequired = item.IsRequired })];
+    }
+
+    private void ChooseStep(ChangeEventArgs change)
+    {
+        stepId = Guid.TryParse(change.Value?.ToString(), out Guid chosen) ? chosen : stepId;
+        loadedKey = "";
+        OnParametersSet();
+    }
+
+    private Task SaveAsync()
+    {
+        DoneRuleItemDraft[] drafts = [.. items.Select(item => new DoneRuleItemDraft(item.Text.Trim(), item.IsRequired))];
+        return Saver.CompleteAsync(Api.SetDoneRuleAsync(Board.Id, Step.Id, drafts, CancellationToken.None), $"Done rule of {Step.Name} saved.");
+    }
+}

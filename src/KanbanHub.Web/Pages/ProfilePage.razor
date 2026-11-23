@@ -1,0 +1,64 @@
+@page "/profile"
+@inject KanbanApi Api
+@inject Notices Notices
+@inject NavigationManager Navigation
+
+<PageTitle>Profile · KanbanHub</PageTitle>
+
+<div class="kh-page-head">
+    <h1>Profile</h1>
+</div>
+
+<div class="kh-form-card" aria-labelledby="profile-github">
+    <h2 id="profile-github">GitHub</h2>
+    @if (connection is null)
+    {
+        <p class="kh-loading" role="status">Looking up your GitHub connection…</p>
+    }
+    else if (connection.IsConnected)
+    {
+        <p>Connected as <strong>@connection.Login</strong>. Coding agents you send cards to work in your name and on your Copilot plan.</p>
+        <button type="button" class="kh-button" @onclick="DisconnectAsync">Disconnect</button>
+    }
+    else
+    {
+        <p>
+            Connect your GitHub account to send cards to coding agents. GitHub asks you to approve the KanbanHub app;
+            KanbanHub then keeps an encrypted token that lets it assign issues as you.
+        </p>
+        <button type="button" class="kh-button kh-button--primary" @onclick="ConnectAsync">Connect GitHub</button>
+    }
+</div>
+
+@code {
+    private GitHubConnectionDto? connection;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        switch ((await Api.GetGitHubConnectionAsync(CancellationToken.None)).Value)
+        {
+            case GitHubConnectionDto found: connection = found; break;
+            case ApiProblem problem: Notices.ShowProblem(problem); break;
+        }
+    }
+
+    /// <summary>The browser leaves for GitHub and comes back on the callback page.</summary>
+    private async Task ConnectAsync()
+    {
+        switch ((await Api.StartGitHubConnectionAsync(CancellationToken.None)).Value)
+        {
+            case ConnectGitHubResponse start: Navigation.NavigateTo(start.AuthorizeUrl, forceLoad: true); break;
+            case ApiProblem problem: Notices.ShowProblem(problem); break;
+        }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        if ((await Api.DisconnectGitHubAsync(CancellationToken.None)).Value is ApiProblem problem) Notices.ShowProblem(problem);
+        else Notices.Show(NoticeKind.Success, "GitHub disconnected.");
+
+        await LoadAsync();
+    }
+}
