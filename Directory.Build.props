@@ -15,6 +15,12 @@
          comments are written where they add information rather than on every member. -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- The Functions SDK prepares its extension project in a step that runs after a function project's own
+         restore. Restoring the solution, or a project that references a function app, never runs that step,
+         so the SDK does the work during the first build instead and reports AZFW0108. The result is the same;
+         as a warning it would fail every clean checkout, so it is not reported. -->
+    <NoWarn>$(NoWarn);AZFW0108</NoWarn>
   </PropertyGroup>
 
 </Project>

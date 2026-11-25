@@ -425,8 +425,9 @@ None of these changes a rule in section 5.1; each closes a gap between the listi
      section 18 allows is stored. `sqlpackage` is installed as a .NET tool. Function packages are zipped before
      upload, because artifacts drop the `.azurefunctions` folder. The web app is built once and its
      `appsettings.json` is written per environment at deployment. CodeQL reads C# without a build and also scans
-     the workflows; it lives in its own workflow with dependency review, because a private repository needs
-     GitHub's paid code security for both. No Dependabot configuration.
+     the workflows; it lives in its own workflow with dependency review. GitHub offers both free of charge on
+     public repositories only, so both jobs are skipped while the repository is private (item 133). No
+     Dependabot configuration.
 128. **The apps' identity gets its database access from the dacpac's post-deployment script,** through two
      SQLCMD variables the pipeline passes (`AppIdentityName`, `AppIdentityClientId`). The user is created
      `WITH SID` from the client id instead of `FROM EXTERNAL PROVIDER`, so the SQL server needs no permission to
@@ -455,6 +456,20 @@ None of these changes a rule in section 5.1; each closes a gap between the listi
      with Ctrl+C was not tried). **Never run: any deployment or what-if, any workflow, `sqlpackage`, the grant
      against Azure SQL, a build on Linux, the function apps in the Functions host.** The first deployment will
      find what a compiler cannot.
+133. **The first runs on GitHub failed in two places** (the project was pushed to a private repository on
+     2026-11-23). **The build:** the Functions SDK prepares its extension project in a step after a function
+     project's own restore. Restoring the solution, or a project that references a function app, never runs
+     that step, so on a clean checkout the SDK does it during the first build and reports `AZFW0108`, which
+     `TreatWarningsAsErrors` turned into an error. It never showed on the development machine, where the
+     folders of an earlier build were always there. `AZFW0108` is now in `NoWarn` for every project; a fresh
+     clone builds with the pipeline's own command, and `run-local.ps1` works on one too. **CodeQL:** the
+     analysis itself ran, for C# without a build and for the workflows. The action then failed for want of the
+     `actions: read` permission that private repositories need, and GitHub answers that code scanning and
+     dependency review are not available on this private repository. Both jobs now run only while the
+     repository is public. Checked in a fresh clone on Windows: the pipeline's build, all tests and the three
+     publishes. The run of the pull request that carried these fixes then passed on GitHub's Linux runner in
+     about four minutes: the build, the tests with SQL Server 2025 in a container (the path item 48 says was
+     never run), the Bicep check, the three publishes and the packaging. The deployment job has still never run.
 
 ## Not built yet, by design
 
