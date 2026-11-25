@@ -470,6 +470,14 @@ None of these changes a rule in section 5.1; each closes a gap between the listi
      publishes. The run of the pull request that carried these fixes then passed on GitHub's Linux runner in
      about four minutes: the build, the tests with SQL Server 2025 in a container (the path item 48 says was
      never run), the Bicep check, the three publishes and the packaging. The deployment job has still never run.
+134. **The repository moved to an organization and is now public** (2026-11-25). Its owner moved it from a
+     personal account to the organization `Raed-DevJourney`: https://github.com/Raed-DevJourney/KanbanHub. The
+     old address redirects there, and no file in the repository named the old one. The run on `main` after the
+     fixes of item 133 passed before the move. Being public changes one thing in the pipeline: CodeQL and
+     dependency review, skipped until now (items 127 and 133), run from here on, for the first time on the pull
+     request that adds this note. If a deployment is ever set up, the federated credential's subject has to
+     name the new owner (`repo:Raed-DevJourney/KanbanHub:environment:<name>`); none exists yet, because nothing
+     was deployed.
 
 ## Not built yet, by design
 
