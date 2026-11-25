@@ -467,8 +467,9 @@ None of these changes a rule in section 5.1; each closes a gap between the listi
      `actions: read` permission that private repositories need, and GitHub answers that code scanning and
      dependency review are not available on this private repository. Both jobs now run only while the
      repository is public. Checked in a fresh clone on Windows: the pipeline's build, all tests and the three
-     publishes. Not known when this was written: whether the tests pass on the Linux runner, where they start
-     SQL Server in a container; the first run stopped before them.
+     publishes. The run of the pull request that carried these fixes then passed on GitHub's Linux runner in
+     about four minutes: the build, the tests with SQL Server 2025 in a container (the path item 48 says was
+     never run), the Bicep check, the three publishes and the packaging. The deployment job has still never run.
 
 ## Not built yet, by design
 
