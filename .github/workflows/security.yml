@@ -1,6 +1,9 @@
-# Code scanning and dependency review (specification section 18.1, stage 1). Kept apart from ci-cd so that a
-# repository without GitHub code security (a private one without the paid add-on) can switch this file off
-# and keep building and deploying.
+# Code scanning and dependency review (specification section 18.1, stage 1).
+#
+# GitHub offers both free of charge on public repositories only. On a private repository they need the paid
+# code security add-on, and without it GitHub refuses the results. So both jobs run while the repository is
+# public and are skipped while it is private. With the add-on on a private repository, remove the two
+# "private" conditions.
 name: security
 
 on:
@@ -18,10 +21,12 @@ concurrency:
 jobs:
   codeql:
     name: CodeQL
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write   # to upload the findings
+      actions: read            # CodeQL looks up its own run; GitHub requires this on private repositories
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,7 +42,7 @@ jobs:
 
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    if: ${{ github.event_name == 'pull_request' && !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

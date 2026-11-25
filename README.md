@@ -15,7 +15,7 @@ This repository is built phase by phase from the specification's build prompt (s
 | 5 | GitHub App: webhook receiver, two-way issue sync, status comment, labels, slash commands, check run, backfill | Done, with the gaps listed in DECISIONS |
 | 6 | Agents: Copilot dispatch behind `IAgentDispatcher` and the `Agents:Enabled` flag, "Connect GitHub", agent limit, pull request tracking | Done, with the gaps listed in DECISIONS |
 | 7 | AI: breakdown assistant, standup brief, constraint finder, WIP advisor, aging alerts, duplicate finder, triage, done-rule check, agent instructions, forecast narrative; all suggest-only and grounding-checked | Done, with the gaps listed in DECISIONS |
-| 8 | Infrastructure and pipelines: Bicep for dev, test and prod at the lowest-cost tiers, GitHub Actions with OpenID Connect, a one-command local run | Written and checked locally; never deployed, and the workflows have never run. The project is run locally only, so deployment is on demand. Gaps in DECISIONS |
+| 8 | Infrastructure and pipelines: Bicep for dev, test and prod at the lowest-cost tiers, GitHub Actions with OpenID Connect, a one-command local run | Written and checked locally; never deployed, and the deployment workflow has never run. The project is run locally only, so deployment is on demand. Gaps in DECISIONS |
 
 Choices that go beyond or differ from the specification, and everything deliberately not built yet,
 are recorded in [DECISIONS.md](DECISIONS.md).
@@ -310,9 +310,9 @@ not AI and runs for every board; only the wording of its alert comes from the mo
 
 ## Deploying to Azure
 
-**Nothing in this section has been run.** The templates compile and lint clean with the Bicep CLI, and the
-workflows were checked for syntax and for pinned actions, but no environment was ever created and no workflow
-has ever run. Expect to fix things on the first deployment.
+**No deployment has been run.** The templates compile and lint clean with the Bicep CLI, and the build
+workflow runs on GitHub, but no environment was ever created and the deployment workflow has never run.
+Expect to fix things on the first deployment.
 
 **KanbanHub is run locally only** (decided on 2026-11-17, DECISIONS item 123), so this section describes what
 exists for the day that changes. Nothing is deployed unless someone asks for it.
