@@ -477,7 +477,12 @@ None of these changes a rule in section 5.1; each closes a gap between the listi
      dependency review, skipped until now (items 127 and 133), run from here on, for the first time on the pull
      request that adds this note. If a deployment is ever set up, the federated credential's subject has to
      name the new owner (`repo:Raed-DevJourney/KanbanHub:environment:<name>`); none exists yet, because nothing
-     was deployed.
+     was deployed. **That first run:** CodeQL passed with no findings. Dependency review failed, because the
+     repository's dependency graph was off; it is a repository setting, and GitHub had not switched it on with
+     the change to public. It was switched on with the owner's agreement, together with Dependabot alerts (the
+     one call GitHub offers turns on both), and the re-run passed.
+135. **License.** MIT, at the owner's request (2026-11-25). `LICENSE` names the organization as the copyright
+     holder; the README links to it. The packages the project depends on keep their own licenses.
 
 ## Not built yet, by design
 

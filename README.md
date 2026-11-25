@@ -156,6 +156,7 @@ KanbanHub.slnx
     deploy.yml            The deployment of one environment, called by ci-cd.
     security.yml          CodeQL and dependency review.
   run-local.ps1           Runs everything on this machine.
+  LICENSE                 The MIT License.
 ```
 
 ## Prerequisites
@@ -561,3 +562,7 @@ budget gate as everything else.
 
 What is not built (Content Safety screening, a golden evaluation set, linking duplicates and more) is in
 [DECISIONS.md](DECISIONS.md), items 107 to 121.
+
+## License
+
+KanbanHub is released under the [MIT License](LICENSE). The packages it depends on keep their own licenses.
